@@ -50,13 +50,13 @@ func httpError(w http.ResponseWriter, status int) {
 //
 func serveStream(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Got websocket request to", r.URL)
-	
+
 	if r.Method != "GET" {
 		log.Println("Invalid method", r.Method)
 		httpError(w, http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	c := newConnection(r)
 	resp, err := c.sync()
 	if err != nil {
@@ -64,7 +64,7 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusInternalServerError)
 		return
 	}
-	
+
 	defer resp.Body.Close()
 	fmt.Println("Sync response:", resp.StatusCode)
 	if resp.StatusCode != 200 {
@@ -75,13 +75,13 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 			httpError(w, http.StatusInternalServerError)
 			return
 		}
-		log.Println("sync failed:", string(body), resp.Header)
+		log.Println("sync failed:", string(body))
 		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 		w.WriteHeader(resp.StatusCode)
 		w.Write(body)
 		return
 	}
-	
+
 	upgrader := websocket.Upgrader {
 		Subprotocols: []string{"m.json"},
 	}
@@ -93,10 +93,32 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 	c.ws = ws
 	defer c.ws.Close()
 
-	go c.syncPump(resp.Body)
 	go c.writePump()
+
+	c.handleSyncResponse(resp.Body)
+	c.syncParams.Set("timeout", "6000")
+
+	go c.syncPump()
 	c.reader()
 }
+
+/* Each connection has three goroutines:
+ *
+ * The writer reads messages from the 'messageSend' channel and writes them
+ * out to the socket. It will stop when the socket is closed, or the
+ * quit channel is closed. It also has responsibility for cleaning up:
+ * When it stops, it closes the socket and the 'quit' channel (thus stopping
+ * the reader and syncPump respectively).
+ *
+ * The reader reads messages from the socket, and processes them, writing
+ * responses into the messageSend channel. It is stopped by the socket being
+ * closed. (TODO: stop the writer on errors). (TODO: we need to exchange this
+ * with a per-request handler).
+ *
+ * The syncPump calls /sync on the upstream server, and writes responses into
+ * the messageSend channel. It is stopped by the 'quit' channel being closed.
+ * (TODO: stop the writer on errors).
+ */
 
 
 type matrixConnection struct {
@@ -106,10 +128,14 @@ type matrixConnection struct {
 	// our client for the upstream connection
 	client *http.Client
 
-	syncParams url.Values 
+	syncParams url.Values
 
 	// Buffered channel of outbound messages.
 	messageSend chan []byte
+
+	// This gets closed when any of the goroutines stop, to ensure the others
+	// do too.
+	quit chan bool
 }
 
 // create a new matrixConnection for the received request
@@ -117,17 +143,20 @@ func newConnection(r *http.Request) *matrixConnection {
 	result := &matrixConnection{
 		syncParams: r.URL.Query(),
 		messageSend: make(chan []byte, 256),
+		quit: make(chan bool),
 	}
 
 	result.syncParams.Set("timeout", "0")
-	result.client = &http.Client{} 
+	result.client = &http.Client{}
 
 	return result
 }
 
 func (c *matrixConnection) sync() (*http.Response, error) {
 	url := upstreamUrl + "?" + c.syncParams.Encode()
-	return c.client.Get(url)
+	log.Println("request", url)
+	r, e := c.client.Get(url)
+	return r, e
 }
 
 func (c *matrixConnection) reader() {
@@ -141,51 +170,71 @@ func (c *matrixConnection) reader() {
 		}
 		fmt.Println("Got message:", string(message))
 	}
-	fmt.Println("Closing socket")
+	fmt.Println("Reader stopped")
+}
+
+func (c *matrixConnection) handleSyncResponse(response io.ReadCloser) error {
+	data, err := ioutil.ReadAll(response)
+	if err != nil {
+		log.Println("Error reading sync response")
+		return err
+	}
+	response.Close()
+
+	// we only need the 'next_batch' token, so just fish that one out
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		log.Println("Error parsing JSON:", err)
+		return err
+	}
+
+	rm, ok := parsed["next_batch"]
+	if !ok {
+		log.Println("No next_batch in JSON")
+		return fmt.Errorf("/sync response missing next_batch")
+	}
+
+	var next_batch string
+	json.Unmarshal(rm, &next_batch)
+	log.Println("Got next_batch:", next_batch)
+
+	c.messageSend <- data
+
+	c.syncParams.Set("since", next_batch)
+	return nil
 }
 
 
-func (c *matrixConnection) syncPump(initialResponse io.ReadCloser) {
-	defer c.ws.Close()
-
-	response := initialResponse
+func (c *matrixConnection) syncPump() {
+	log.Println("Starting sync pump")
+	defer func() { log.Println("Sync pump stopped") } ()
 
 	for {
-		data, err := ioutil.ReadAll(response)
-		if err != nil {
-			log.Println("Error reading sync response")
-			return
+		// check that the writer hasn't shut us down
+		select {
+			case <- c.quit:
+				return;
+			default:
 		}
-		response.Close()
-	
-		// we only need the 'next_batch' token, so just fish that one out
-		var parsed map[string]json.RawMessage
-		if err := json.Unmarshal(data, &parsed); err != nil {
-			log.Println("Error parsing JSON:", err)
-			return
-		}
-
-		rm, ok := parsed["next_batch"]
-		if !ok {
-			log.Println("No next_batch in JSON")
-			return
-		}
-
-		var next_batch string
-		json.Unmarshal(rm, &next_batch)
-		log.Println("Got next_batch:", next_batch)
-
-		c.messageSend <- data
-
-		c.syncParams.Set("since", next_batch)
-		c.syncParams.Set("timeout", "6000")
 
 		resp, err := c.sync()
 		if err != nil {
 			log.Println("Error in sync", err)
 			return
 		}
-		response = resp.Body
+		if resp.StatusCode != 200 {
+			body, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				log.Println("Error reading sync error response", err)
+				return
+			}
+			log.Println("sync failed:", string(body), resp.Header)
+			return
+		}
+		if err := c.handleSyncResponse(resp.Body); err != nil {
+			log.Println("Error in sync", err)
+			return
+		}
 	}
 }
 
@@ -203,23 +252,21 @@ func (c *matrixConnection) writeClose() error {
 // writePump pumps messages out to the websocket connection, and takes
 // responsibility for sending pings.
 func (c *matrixConnection) writePump() {
+	defer func() { log.Println("Writer stopped") } ()
+	defer close(c.quit)
 	defer c.ws.Close()
 	ticker := time.NewTicker(pingPeriod)
 	defer ticker.Stop()
 	for {
 		select {
-		case message, ok := <- c.messageSend:
-			if !ok {
-				c.writeClose()
-				return
-			}
-			if err := c.write(websocket.TextMessage, message); err != nil {
-				return
-			}
-		case <-ticker.C:
-			if err := c.write(websocket.PingMessage, []byte{}); err != nil {
-				return
-			}
+			case message := <- c.messageSend:
+				if err := c.write(websocket.TextMessage, message); err != nil {
+					return
+				}
+			case <-ticker.C:
+				if err := c.write(websocket.PingMessage, []byte{}); err != nil {
+					return
+				}
 		}
 	}
 }

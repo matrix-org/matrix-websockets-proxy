@@ -12,7 +12,7 @@ function parseQueryString() {
 
 function onload() {
     var queryDict = parseQueryString();
-    if(queryDict["token"]) {
+    if(queryDict["token"] != "") {
         $("#token").val(queryDict["token"])
     }
 }
