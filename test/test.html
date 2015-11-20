@@ -2,17 +2,41 @@
 <head>
 <script src="//code.jquery.com/jquery-1.11.3.min.js"></script>
 <script src="test.js"></script>
+<style type="text/css">
+
+#log {
+    overflow: scroll;
+    height: 600px;
+    border-style: solid;
+    margin: 0.5em;
+}
+
+#log div {
+    padding: 0.5em;
+}
+
+#log div.error {
+    color: red;
+}
+</style>
 </head>
 
 <body>
 <h1>Test</h1>
 <div>
-access token: <input type="text" id="token" value="MDAxN2xvY2F0aW9uIGxvY2FsaG9zdAowMDEzaWRlbnRpZmllciBrZXkKMDAxMGNpZCBnZW4gPSAxCjAwMjVjaWQgdXNlcl9pZCA9IEByaWNodmRoOmxvY2FsaG9zdAowMDE2Y2lkIHR5cGUgPSBhY2Nlc3MKMDAxZGNpZCB0aW1lIDwgMTQ0ODAxNjQ2MzM2OQowMDJmc2lnbmF0dXJlIGR_30GKRniahuTGR_RNy9tmWhMwgDsrGLGqRPwR5ireCg" size="100"></input>
-<button onclick="start()">Start</button>
+<form onsubmit="false">
+since: <input type="text" id="since" size="30"></input>
+access token: <input type="text" id="token" size="100"></input>
+<input type="submit" value="Start" onclick="start(); return false"></input>
+<input type="submit" value="Stop" onclick="stop(); return false"></input>
+
+</form>
 </div>
+<!--
 <div>
 Message: <input type="text" id="text"></input>
 <button onclick="send()">Send</button>
 </div>
+-->
 <div id="log"></div>
 </body> </html>

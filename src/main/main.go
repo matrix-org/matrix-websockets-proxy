@@ -1,6 +1,7 @@
 package main
 
 import (
+  "encoding/json"
   "fmt"
   "github.com/gorilla/websocket"
   "io"
@@ -25,8 +26,9 @@ const (
 
 	// Maximum message size allowed from peer.
 	maxMessageSize = 512
-	
+
 	upstreamUrl = "http://localhost:8008/_matrix/client/v2_alpha/sync"
+	//upstreamUrl = "https://www.sw1v.org/_matrix/client/v2_alpha/sync"
 )
 
 
@@ -108,9 +110,6 @@ type matrixConnection struct {
 
 	// Buffered channel of outbound messages.
 	messageSend chan []byte
-	
-	// Channel of sync responses
-	syncSend chan io.ReadCloser
 }
 
 // create a new matrixConnection for the received request
@@ -118,9 +117,9 @@ func newConnection(r *http.Request) *matrixConnection {
 	result := &matrixConnection{
 		syncParams: r.URL.Query(),
 		messageSend: make(chan []byte, 256),
-		syncSend: make(chan io.ReadCloser),
 	}
 
+	result.syncParams.Set("timeout", "0")
 	result.client = &http.Client{} 
 
 	return result
@@ -128,8 +127,6 @@ func newConnection(r *http.Request) *matrixConnection {
 
 func (c *matrixConnection) sync() (*http.Response, error) {
 	url := upstreamUrl + "?" + c.syncParams.Encode()
-		 
-	fmt.Println("Upstream URL:", url)
 	return c.client.Get(url)
 }
 
@@ -142,33 +139,55 @@ func (c *matrixConnection) reader() {
 		if err != nil {
 			break
 		}
-		fmt.Println("Got message: ", string(message))
+		fmt.Println("Got message:", string(message))
 	}
 	fmt.Println("Closing socket")
 }
 
 
 func (c *matrixConnection) syncPump(initialResponse io.ReadCloser) {
-	c.syncSend <- initialResponse
-}
+	defer c.ws.Close()
 
+	response := initialResponse
 
-func (c *matrixConnection) writeSync(syncResponse io.ReadCloser) error {
-	defer syncResponse.Close()
+	for {
+		data, err := ioutil.ReadAll(response)
+		if err != nil {
+			log.Println("Error reading sync response")
+			return
+		}
+		response.Close()
 	
-	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+		// we only need the 'next_batch' token, so just fish that one out
+		var parsed map[string]json.RawMessage
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			log.Println("Error parsing JSON:", err)
+			return
+		}
 
-	wr, err := c.ws.NextWriter(websocket.TextMessage)
-	if err != nil {
-		return err
+		rm, ok := parsed["next_batch"]
+		if !ok {
+			log.Println("No next_batch in JSON")
+			return
+		}
+
+		var next_batch string
+		json.Unmarshal(rm, &next_batch)
+		log.Println("Got next_batch:", next_batch)
+
+		c.messageSend <- data
+
+		c.syncParams.Set("since", next_batch)
+		c.syncParams.Set("timeout", "6000")
+
+		resp, err := c.sync()
+		if err != nil {
+			log.Println("Error in sync", err)
+			return
+		}
+		response = resp.Body
 	}
-	defer wr.Close()
-	if _, err := io.Copy(wr, syncResponse); err != nil {
-		return err
-	}
-	return nil
 }
-
 
 // write writes a message with the given message type and payload.
 func (c *matrixConnection) write(mt int, payload []byte) error {
@@ -195,14 +214,6 @@ func (c *matrixConnection) writePump() {
 				return
 			}
 			if err := c.write(websocket.TextMessage, message); err != nil {
-				return
-			}
-		case reader, ok := <- c.syncSend:
-			if !ok {
-				c.writeClose()
-				return
-			}
-			if err := c.writeSync(reader); err != nil {
 				return
 			}
 		case <-ticker.C:
