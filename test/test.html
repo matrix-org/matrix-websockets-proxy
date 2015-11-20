@@ -1,10 +1,18 @@
 <html>
 <head>
+<script src="//code.jquery.com/jquery-1.11.3.min.js"></script>
 <script src="test.js"></script>
 </head>
 
 <body>
 <h1>Test</h1>
-<input name="searchTxt" type="text" id="text"></input>
+<div>
+access token: <input type="text" id="token" value="MDAxN2xvY2F0aW9uIGxvY2FsaG9zdAowMDEzaWRlbnRpZmllciBrZXkKMDAxMGNpZCBnZW4gPSAxCjAwMjVjaWQgdXNlcl9pZCA9IEByaWNodmRoOmxvY2FsaG9zdAowMDE2Y2lkIHR5cGUgPSBhY2Nlc3MKMDAxZGNpZCB0aW1lIDwgMTQ0ODAxNjQ2MzM2OQowMDJmc2lnbmF0dXJlIGR_30GKRniahuTGR_RNy9tmWhMwgDsrGLGqRPwR5ireCg" size="100"></input>
+<button onclick="start()">Start</button>
+</div>
+<div>
+Message: <input type="text" id="text"></input>
 <button onclick="send()">Send</button>
+</div>
+<div id="log"></div>
 </body> </html>
