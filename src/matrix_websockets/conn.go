@@ -21,13 +21,11 @@ const (
 	maxMessageSize = 512
 )
 
-
-
 /* Each connection has three main goroutines:
  *
  * The writer reads messages from the 'messageSend' channel and writes them
- * out to the socket. It will stop when the 'quit' channel is closed. A 
- * separate writer is required because we have to ensure that only one 
+ * out to the socket. It will stop when the 'quit' channel is closed. A
+ * separate writer is required because we have to ensure that only one
  * goroutine calls the send methods concurrently.
  *
  * The reader reads messages from the socket, and processes them, writing
@@ -62,7 +60,7 @@ type MatrixConnection struct {
 	// This gets closed when the reader stops, to ensure the sync pump and the
 	// writer also stop.
 	quit chan bool
-	
+
 	syncer SyncRequestor
 }
 
@@ -77,7 +75,7 @@ func NewConnection(syncer SyncRequestor, ws *websocket.Conn) *MatrixConnection {
 		messageSend: make(chan []byte, 256),
 		closeSend:   make(chan websocket.CloseError, 5),
 		quit:        make(chan bool),
-		syncer:		 syncer,
+		syncer:      syncer,
 	}
 
 	return result
@@ -92,7 +90,6 @@ func (c *MatrixConnection) StartPumps() {
 	go c.syncPump()
 	go c.reader()
 }
-
 
 // syncPump repeatedly calls /sync and writes the results to the messageSend
 // channel.
@@ -173,7 +170,6 @@ func (c *MatrixConnection) writePump() {
 	}
 }
 
-
 // helper for writePump: writes a message with the given message type and payload.
 func (c *MatrixConnection) write(mt int, payload []byte) error {
 	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
@@ -184,13 +180,12 @@ func (c *MatrixConnection) write(mt int, payload []byte) error {
 	return err
 }
 
-// helper for writePump: writes a close message  
+// helper for writePump: writes a close message
 func (c *MatrixConnection) writeClose(closeReason websocket.CloseError) error {
 	log.Println("Sending close request:", closeReason)
 	msg := websocket.FormatCloseMessage(closeReason.Code, closeReason.Text)
 	return c.write(websocket.CloseMessage, msg)
 }
-
 
 func (c *MatrixConnection) reader() {
 	// close the socket when we exit
