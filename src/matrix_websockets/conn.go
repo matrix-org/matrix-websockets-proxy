@@ -1,4 +1,4 @@
-package main
+package matrix_websockets
 
 import (
 	"github.com/gorilla/websocket"
@@ -6,6 +6,21 @@ import (
 	"net/url"
 	"time"
 )
+
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+
+	// Maximum message size allowed from peer.
+	maxMessageSize = 512
+)
+
 
 
 /* Each connection has three main goroutines:
@@ -28,7 +43,7 @@ import (
  * shutdown process.
  */
 
-type matrixConnection struct {
+type MatrixConnection struct {
 	// The websocket connection
 	ws *websocket.Conn
 
@@ -55,9 +70,9 @@ type SyncRequestor interface {
 	MakeRequest() ([]byte, error)
 }
 
-// create a new matrixConnection for the received request
-func newConnection(syncer SyncRequestor, ws *websocket.Conn) *matrixConnection {
-	result := &matrixConnection{
+// create a new MatrixConnection for the received request
+func NewConnection(syncer SyncRequestor, ws *websocket.Conn) *MatrixConnection {
+	result := &MatrixConnection{
 		ws:          ws,
 		messageSend: make(chan []byte, 256),
 		closeSend:   make(chan websocket.CloseError, 5),
@@ -68,7 +83,11 @@ func newConnection(syncer SyncRequestor, ws *websocket.Conn) *matrixConnection {
 	return result
 }
 
-func (c *matrixConnection) startPumps() {
+func (c *MatrixConnection) SendMessage(message []byte) {
+	c.messageSend <- message
+}
+
+func (c *MatrixConnection) StartPumps() {
 	go c.writePump()
 	go c.syncPump()
 	go c.reader()
@@ -77,7 +96,7 @@ func (c *matrixConnection) startPumps() {
 
 // syncPump repeatedly calls /sync and writes the results to the messageSend
 // channel.
-func (c *matrixConnection) syncPump() {
+func (c *MatrixConnection) syncPump() {
 	log.Println("Starting sync pump")
 	defer func() { log.Println("Sync pump stopped") }()
 
@@ -114,13 +133,13 @@ func (c *matrixConnection) syncPump() {
 			return
 		}
 
-		c.messageSend <- body
+		c.SendMessage(body)
 	}
 }
 
 // writePump pumps messages out to the websocket connection, and takes
 // responsibility for sending pings.
-func (c *matrixConnection) writePump() {
+func (c *MatrixConnection) writePump() {
 	defer func() { log.Println("Writer stopped") }()
 
 	// start a ticker for sending pings
@@ -156,7 +175,7 @@ func (c *matrixConnection) writePump() {
 
 
 // helper for writePump: writes a message with the given message type and payload.
-func (c *matrixConnection) write(mt int, payload []byte) error {
+func (c *MatrixConnection) write(mt int, payload []byte) error {
 	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
 	err := c.ws.WriteMessage(mt, payload)
 	if err != nil {
@@ -166,14 +185,14 @@ func (c *matrixConnection) write(mt int, payload []byte) error {
 }
 
 // helper for writePump: writes a close message  
-func (c *matrixConnection) writeClose(closeReason websocket.CloseError) error {
+func (c *MatrixConnection) writeClose(closeReason websocket.CloseError) error {
 	log.Println("Sending close request:", closeReason)
 	msg := websocket.FormatCloseMessage(closeReason.Code, closeReason.Text)
 	return c.write(websocket.CloseMessage, msg)
 }
 
 
-func (c *matrixConnection) reader() {
+func (c *MatrixConnection) reader() {
 	// close the socket when we exit
 	defer c.ws.Close()
 
@@ -201,6 +220,6 @@ func (c *matrixConnection) reader() {
 	log.Println("Reader stopped")
 }
 
-func (c *matrixConnection) handleMessage(message []byte) {
+func (c *MatrixConnection) handleMessage(message []byte) {
 	log.Println("Got message:", string(message))
 }

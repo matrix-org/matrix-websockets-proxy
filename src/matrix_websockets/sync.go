@@ -1,4 +1,4 @@
-package main
+package matrix_websockets
 
 import (
 	"encoding/json"
@@ -9,30 +9,34 @@ import (
 	"net/url"
 )
 
-type syncer struct {
+type Syncer struct {
+	UpstreamUrl string
+	
+	SyncParams url.Values
+
 	// our client for the upstream connection
 	client http.Client
-
-	syncParams url.Values
 }
 
 // an error returned when the /sync endpoint returns a non-200.
-type syncError struct {
-	statusCode   int
-	contentType  string
-	body         []byte
+type SyncError struct {
+	StatusCode   int
+	ContentType  string
+	Body         []byte
 }
 
-func (s *syncError) Error() string {
-	return string(s.body)
+func (s *SyncError) Error() string {
+	return string(s.Body)
 }
+
+
 
 // MakeRequest sends the sync request, and returns the body of the response,
 // or an error.
 //
-// If /sync returns a non-200 response, the error returned will be a syncError.
-func (s *syncer) MakeRequest() ([]byte, error) {
-	url := upstreamUrl + "?" + s.syncParams.Encode()
+// If /sync returns a non-200 response, the error returned will be a SyncError.
+func (s *Syncer) MakeRequest() ([]byte, error) {
+	url := s.UpstreamUrl + "?" + s.SyncParams.Encode()
 	log.Println("request", url)
 	resp, err := s.client.Get(url)
 
@@ -50,7 +54,7 @@ func (s *syncer) MakeRequest() ([]byte, error) {
 
 	log.Println("Sync response:", resp.StatusCode)
 	if resp.StatusCode != 200 {
-		return nil, &syncError{resp.StatusCode, resp.Header.Get("Content-Type"), body}
+		return nil, &SyncError{resp.StatusCode, resp.Header.Get("Content-Type"), body}
 	}
 
 	// we need the 'next_batch' token, so fish that out
@@ -70,6 +74,6 @@ func (s *syncer) MakeRequest() ([]byte, error) {
 	json.Unmarshal(rm, &next_batch)
 	log.Println("Got next_batch:", next_batch)
 
-	s.syncParams.Set("since", next_batch)
+	s.SyncParams.Set("since", next_batch)
 	return body, nil
 }

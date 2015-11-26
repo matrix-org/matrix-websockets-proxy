@@ -6,26 +6,15 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"matrix_websockets"
 )
 
 const (
 	listenPort = 8009
 
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
 	// timeout for upstream /sync requests (after which it will send back
-	// an empty response
+	// an empty response)
 	syncTimeout = 60 * time.Second
-
-	// Maximum message size allowed from peer.
-	maxMessageSize = 512
 
 	upstreamUrl = "http://localhost:8008/_matrix/client/v2_alpha/sync"
 	//upstreamUrl = "https://www.sw1v.org/_matrix/client/v2_alpha/sync"
@@ -56,26 +45,27 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	syncer := syncer{}
-	syncer.syncParams = r.URL.Query()
-	syncer.syncParams.Set("timeout", "0")
+	syncer := matrix_websockets.Syncer{}
+	syncer.UpstreamUrl = upstreamUrl
+	syncer.SyncParams = r.URL.Query()
+	syncer.SyncParams.Set("timeout", "0")
 
 	msg, err := syncer.MakeRequest()
 	if err != nil {
 		switch err.(type) {
-		case *syncError:
-			errp := err.(*syncError)
-			log.Println("sync failed:", string(errp.body))
-			w.Header().Set("Content-Type", errp.contentType)
-			w.WriteHeader(errp.statusCode)
-			w.Write(errp.body)
+		case *matrix_websockets.SyncError:
+			errp := err.(*matrix_websockets.SyncError)
+			log.Println("sync failed:", string(errp.Body))
+			w.Header().Set("Content-Type", errp.ContentType)
+			w.WriteHeader(errp.StatusCode)
+			w.Write(errp.Body)
 		default:
 			log.Println("Error in sync", err)
 			httpError(w, http.StatusInternalServerError)
 		}
 		return
 	}
-	syncer.syncParams.Set("timeout", fmt.Sprintf("%d", syncTimeout/time.Millisecond))
+	syncer.SyncParams.Set("timeout", fmt.Sprintf("%d", syncTimeout/time.Millisecond))
 
 	upgrader := websocket.Upgrader{
 		Subprotocols: []string{"m.json"},
@@ -86,7 +76,7 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := newConnection(&syncer, ws)
-	c.messageSend <- msg
-	c.startPumps()
+	c := matrix_websockets.NewConnection(&syncer, ws)
+	c.SendMessage(msg)
+	c.StartPumps()
 }
