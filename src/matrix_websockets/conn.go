@@ -192,6 +192,7 @@ func (c *MatrixConnection) reader() {
 				log.Println("Error in reader:", err)
 			}
 			c.doClose()
+			c.ws.Close()
 			return
 		}
 		go c.handleMessage(message)
@@ -210,9 +211,6 @@ func (c *MatrixConnection) closer() {
 	case <-c.closeChan:
 		close(c.quit)
 	}
-
-	c.ws.Close()
-
 }
 
 func (c *MatrixConnection) handleMessage(message []byte) {
