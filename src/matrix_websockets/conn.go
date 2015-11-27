@@ -1,10 +1,11 @@
 package matrix_websockets
 
 import (
-	"github.com/gorilla/websocket"
 	"log"
 	"net/url"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -19,15 +20,20 @@ const (
 
 	// Maximum message size allowed from peer.
 	maxMessageSize = 512
+
+	goroutineCount = 4
 )
 
-
+type message struct {
+	messageType int
+	body        []byte
+}
 
 /* Each connection has three main goroutines:
  *
  * The writer reads messages from the 'messageSend' channel and writes them
- * out to the socket. It will stop when the 'quit' channel is closed. A 
- * separate writer is required because we have to ensure that only one 
+ * out to the socket. It will stop when the 'quit' channel is closed. A
+ * separate writer is required because we have to ensure that only one
  * goroutine calls the send methods concurrently.
  *
  * The reader reads messages from the socket, and processes them, writing
@@ -42,28 +48,19 @@ const (
  * On error, it tells the writer to send a close request, to initiate the
  * shutdown process.
  */
-
 type MatrixConnection struct {
 	// The websocket connection
 	ws *websocket.Conn
 
-	// Buffered channel of outbound messages.
-	messageSend chan []byte
+	send chan message
 
-	// Channel of outbound close requests. The writer will send a close
-	// message to notify the client of the error, then exit.
-	//
-	// The channel is buffered so that if two things decide to close at the
-	// same time, we don't end up with one of them blocking (the writer will
-	// read at most one of the requests). XXX: is there a nicer way to do
-	// this?
-	closeSend chan websocket.CloseError
+	// All goroutines reading from or writing to ws should stop doing so if this channel is closed.
+	quit chan struct{}
 
-	// This gets closed when the reader stops, to ensure the sync pump and the
-	// writer also stop.
-	quit chan bool
-	
 	syncer SyncRequestor
+
+	// Goroutines should write to this channel if they encounter an error which should close the websocket.
+	closeChan chan struct{}
 }
 
 type SyncRequestor interface {
@@ -73,26 +70,29 @@ type SyncRequestor interface {
 // create a new MatrixConnection for the received request
 func NewConnection(syncer SyncRequestor, ws *websocket.Conn) *MatrixConnection {
 	result := &MatrixConnection{
-		ws:          ws,
-		messageSend: make(chan []byte, 256),
-		closeSend:   make(chan websocket.CloseError, 5),
-		quit:        make(chan bool),
-		syncer:		 syncer,
+		ws:        ws,
+		send:      make(chan message, 256),
+		quit:      make(chan struct{}),
+		closeChan: make(chan struct{}, goroutineCount),
+		syncer:    syncer,
 	}
 
 	return result
 }
 
-func (c *MatrixConnection) SendMessage(message []byte) {
-	c.messageSend <- message
+func (c *MatrixConnection) SendMessage(body []byte) {
+	c.send <- message{
+		websocket.TextMessage,
+		body,
+	}
 }
 
 func (c *MatrixConnection) StartPumps() {
+	go c.closer()
 	go c.writePump()
 	go c.syncPump()
 	go c.reader()
 }
-
 
 // syncPump repeatedly calls /sync and writes the results to the messageSend
 // channel.
@@ -127,10 +127,11 @@ func (c *MatrixConnection) syncPump() {
 				errmsg = errmsg[:100] + "..."
 			}
 
-			msg := websocket.CloseError{Code: websocket.CloseInternalServerErr,
-				Text: errmsg}
-			c.closeSend <- msg
-			return
+			c.send <- message{
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseInternalServerErr, errmsg),
+			}
+			c.doClose()
 		}
 
 		c.SendMessage(body)
@@ -151,28 +152,21 @@ func (c *MatrixConnection) writePump() {
 		case <-c.quit:
 			return
 
-		case closeMessage := <-c.closeSend:
-			c.writeClose(closeMessage)
-			// there is nothing more that is useful for us to do. The
-			// client should send a close response, which will shut down
-			// the reader (and thence the sync pump). If the client fails
-			// to respond, the reader will time out and shut everything
-			// down anyway.
-			return
-
-		case message := <-c.messageSend:
-			if err := c.write(websocket.TextMessage, message); err != nil {
-				return
+		case message := <-c.send:
+			if err := c.write(message.messageType, message.body); err != nil {
+				c.doClose()
+			}
+			if message.messageType == websocket.CloseMessage {
+				c.doClose()
 			}
 
 		case <-ticker.C:
 			if err := c.write(websocket.PingMessage, []byte{}); err != nil {
-				return
+				c.doClose()
 			}
 		}
 	}
 }
-
 
 // helper for writePump: writes a message with the given message type and payload.
 func (c *MatrixConnection) write(mt int, payload []byte) error {
@@ -184,24 +178,9 @@ func (c *MatrixConnection) write(mt int, payload []byte) error {
 	return err
 }
 
-// helper for writePump: writes a close message  
-func (c *MatrixConnection) writeClose(closeReason websocket.CloseError) error {
-	log.Println("Sending close request:", closeReason)
-	msg := websocket.FormatCloseMessage(closeReason.Code, closeReason.Text)
-	return c.write(websocket.CloseMessage, msg)
-}
-
-
 func (c *MatrixConnection) reader() {
-	// close the socket when we exit
-	defer c.ws.Close()
-
-	// tell the syncPump to close when we exit
-	defer close(c.quit)
-
+	defer log.Println("Reader stopped")
 	c.ws.SetReadLimit(maxMessageSize)
-	c.ws.SetReadDeadline(time.Now().Add(pongWait))
-	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
 		_, message, err := c.ws.ReadMessage()
 		if err != nil {
@@ -212,12 +191,28 @@ func (c *MatrixConnection) reader() {
 			default:
 				log.Println("Error in reader:", err)
 			}
-			break
+			c.doClose()
+			return
 		}
 		go c.handleMessage(message)
-
 	}
-	log.Println("Reader stopped")
+}
+
+func (c *MatrixConnection) doClose() {
+	c.closeChan <- struct{}{}
+}
+
+func (c *MatrixConnection) closer() {
+	c.ws.SetReadDeadline(time.Now().Add(pongWait))
+	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+
+	select {
+	case <-c.closeChan:
+		close(c.quit)
+	}
+
+	c.ws.Close()
+
 }
 
 func (c *MatrixConnection) handleMessage(message []byte) {

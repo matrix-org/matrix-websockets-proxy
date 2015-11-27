@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/gorilla/websocket"
 	"log"
+	"matrix-websockets/src/matrix_websockets"
 	"net/http"
 	"time"
-	"matrix_websockets"
+
+	"github.com/gorilla/websocket"
 )
 
 const (

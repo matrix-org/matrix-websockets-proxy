@@ -11,7 +11,7 @@ import (
 
 type Syncer struct {
 	UpstreamUrl string
-	
+
 	SyncParams url.Values
 
 	// our client for the upstream connection
@@ -20,16 +20,14 @@ type Syncer struct {
 
 // an error returned when the /sync endpoint returns a non-200.
 type SyncError struct {
-	StatusCode   int
-	ContentType  string
-	Body         []byte
+	StatusCode  int
+	ContentType string
+	Body        []byte
 }
 
 func (s *SyncError) Error() string {
 	return string(s.Body)
 }
-
-
 
 // MakeRequest sends the sync request, and returns the body of the response,
 // or an error.
