@@ -70,11 +70,11 @@ type SyncRequestor interface {
 // create a new MatrixConnection for the received request
 func NewConnection(syncer SyncRequestor, ws *websocket.Conn) *MatrixConnection {
 	result := &MatrixConnection{
-		ws:        ws,
-		send:      make(chan message, 256),
-		quit:      make(chan struct{}),
-		closeChan: make(chan struct{}, goroutineCount),
-		syncer:    syncer,
+		ws:          ws,
+		messageSend: make(chan []byte, 256),
+		closeSend:   make(chan websocket.CloseError, 5),
+		quit:        make(chan bool),
+		syncer:      syncer,
 	}
 
 	return result
