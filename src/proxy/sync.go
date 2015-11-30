@@ -1,4 +1,4 @@
-package matrix_websockets
+package proxy
 
 import (
 	"encoding/json"

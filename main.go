@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"log"
-	"matrix_websockets"
+	"proxy"
 	"net/http"
 	"time"
 )
@@ -45,7 +45,7 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	syncer := matrix_websockets.Syncer{}
+	syncer := proxy.Syncer{}
 	syncer.UpstreamUrl = upstreamUrl
 	syncer.SyncParams = r.URL.Query()
 	syncer.SyncParams.Set("timeout", "0")
@@ -53,8 +53,8 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 	msg, err := syncer.MakeRequest()
 	if err != nil {
 		switch err.(type) {
-		case *matrix_websockets.SyncError:
-			errp := err.(*matrix_websockets.SyncError)
+		case *proxy.SyncError:
+			errp := err.(*proxy.SyncError)
 			log.Println("sync failed:", string(errp.Body))
 			w.Header().Set("Content-Type", errp.ContentType)
 			w.WriteHeader(errp.StatusCode)
@@ -76,7 +76,7 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := matrix_websockets.NewConnection(&syncer, ws)
+	c := proxy.NewConnection(&syncer, ws)
 	c.SendMessage(msg)
 	c.StartPumps()
 }
