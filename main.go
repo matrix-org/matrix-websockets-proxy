@@ -1,37 +1,48 @@
+// matrix-websockets-proxy provides a websockets interface to a Matrix
+// homeserver implementing the REST API.
+//
+// It listens on a TCP port (localhost:8009 by default), and turns any
+// incoming connections into REST requests to the configured homeserver.
+//
+// It exposes only the one HTTP endpoint '/stream'. It is intended
+// that an SSL-aware reverse proxy (such as Apache or nginx) be used in front
+// of it, to direct most requests to the homeserver, but websockets requests
+// to this proxy.
+//
+// You can also visit http://localhost:8009/test/test.html, which is a very
+// simple client for testing the websocket interface.
+//
 package main
 
 import (
+	"flag"
 	"fmt"
-	"github.com/gorilla/websocket"
 	"log"
-	"proxy"
 	"net/http"
+	"proxy"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
-	listenPort = 8009
-
 	// timeout for upstream /sync requests (after which it will send back
 	// an empty response)
 	syncTimeout = 60 * time.Second
-
-	upstreamUrl = "http://localhost:8008/_matrix/client/v2_alpha/sync"
-	//upstreamUrl = "https://www.sw1v.org/_matrix/client/v2_alpha/sync"
 )
 
+var port = flag.Int("port", 8009, "TCP port to listen on")
+var upstreamURL = flag.String("upstream", "http://localhost:8008/", "URL of upstream server")
+
+
 func main() {
-	fmt.Println("Starting websock server on port", listenPort)
+	flag.Parse()
+
+	fmt.Println("Starting websock server on port", *port)
 	http.Handle("/test/", http.StripPrefix("/test/", http.FileServer(http.Dir("test"))))
 	http.HandleFunc("/stream", serveStream)
-	err := http.ListenAndServe(fmt.Sprintf(":%v", listenPort), nil)
-	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
-	}
-}
-
-func httpError(w http.ResponseWriter, status int) {
-	http.Error(w, http.StatusText(status), status)
+	err := http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
+	log.Fatal("ListenAndServe: ", err)
 }
 
 // handle a request to /stream
@@ -45,10 +56,11 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	syncer := proxy.Syncer{}
-	syncer.UpstreamUrl = upstreamUrl
-	syncer.SyncParams = r.URL.Query()
-	syncer.SyncParams.Set("timeout", "0")
+	r.URL.Query().Set("timeout", "0")
+	syncer := &proxy.Syncer {
+		UpstreamURL: *upstreamURL+"_matrix/client/v2_alpha/sync",
+		SyncParams: r.URL.Query(),
+	}
 
 	msg, err := syncer.MakeRequest()
 	if err != nil {
@@ -76,7 +88,11 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := proxy.NewConnection(&syncer, ws)
+	c := proxy.New(syncer, ws)
 	c.SendMessage(msg)
-	c.StartPumps()
+	c.Start()
+}
+
+func httpError(w http.ResponseWriter, status int) {
+	http.Error(w, http.StatusText(status), status)
 }

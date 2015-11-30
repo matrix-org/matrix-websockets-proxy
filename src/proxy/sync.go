@@ -10,12 +10,12 @@ import (
 )
 
 type Syncer struct {
-	UpstreamUrl string
+	UpstreamURL string
 
-	SyncParams url.Values
+	SyncParams  url.Values
 
 	// our client for the upstream connection
-	client http.Client
+	client      http.Client
 }
 
 // an error returned when the /sync endpoint returns a non-200.
@@ -32,9 +32,15 @@ func (s *SyncError) Error() string {
 // MakeRequest sends the sync request, and returns the body of the response,
 // or an error.
 //
+// It keeps track of the 'next_batch' from the result, and uses it to se the
+// 'since' parameter for the next call.
+//
+// Note that this method is not thread-safe; there should be only one concurrent
+// call per Syncer.
+//
 // If /sync returns a non-200 response, the error returned will be a SyncError.
 func (s *Syncer) MakeRequest() ([]byte, error) {
-	url := s.UpstreamUrl + "?" + s.SyncParams.Encode()
+	url := s.UpstreamURL + "?" + s.SyncParams.Encode()
 	log.Println("request", url)
 	resp, err := s.client.Get(url)
 
@@ -42,12 +48,11 @@ func (s *Syncer) MakeRequest() ([]byte, error) {
 		log.Println("Error in sync", err)
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-
 	if err != nil {
-		return nil, fmt.Errorf("Error reading sync error response: %v", err)
+		return nil, fmt.Errorf("error reading sync error response: %v", err)
 	}
 
 	log.Println("Sync response:", resp.StatusCode)

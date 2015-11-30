@@ -18,31 +18,31 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 
 	// Maximum message size allowed from peer.
-	maxMessageSize = 512
+	maxMessageBytes = 512
 )
 
-/* Each connection has three main goroutines:
- *
- * The writer reads messages from the 'messageSend' channel and writes them
- * out to the socket. It will stop when the 'quit' channel is closed. A
- * separate writer is required because we have to ensure that only one
- * goroutine calls the send methods concurrently.
- *
- * The reader reads messages from the socket, and processes them, writing
- * responses into the messageSend channel. It also has responsibility for
- * cleaning up: when it stops, it closes the socket and the 'quit' channel
- * (thus stopping writer and syncPump). The reader is stopped
- * on errors from the websocket, which can be due to the socket being closed,
- * a close response being received, or a ping timeout.
- *
- * The syncPump calls /sync on the upstream server, and writes responses into
- * the messageSend channel. It is stopped by the 'quit' channel being closed.
- * On error, it tells the writer to send a close request, to initiate the
- * shutdown process.
- */
-
-type MatrixConnection struct {
-	// The websocket connection
+// A Connection represents a single websocket.
+//
+// Each connection has three main goroutines:
+//
+// The writer reads messages from the 'messageSend' channel and writes them
+// out to the socket. It will stop when the 'quit' channel is closed. A
+// separate writer is required because we have to ensure that only one
+// goroutine calls the send methods concurrently.
+//
+// The reader reads messages from the socket, and processes them, writing
+// responses into the messageSend channel. It also has responsibility for
+// cleaning up: when it stops, it closes the socket and the 'quit' channel
+// (thus stopping writer and syncPump). The reader is stopped
+// on errors from the websocket, which can be due to the socket being closed,
+// a close response being received, or a ping timeout.
+//
+// The syncPump calls /sync on the upstream server, and writes responses into
+// the messageSend channel. It is stopped by the 'quit' channel being closed.
+// On error, it tells the writer to send a close request, to initiate the
+// shutdown process.
+//
+type Connection struct {
 	ws *websocket.Conn
 
 	// Buffered channel of outbound messages.
@@ -59,33 +59,34 @@ type MatrixConnection struct {
 
 	// This gets closed when the reader stops, to ensure the sync pump and the
 	// writer also stop.
-	quit chan bool
+	quit chan struct{}
 
-	syncer SyncRequestor
+	syncer *Syncer
 }
 
-type SyncRequestor interface {
-	MakeRequest() ([]byte, error)
-}
+// New creates a new Connection for an incoming websocket upgrade request
+func New(syncer *Syncer, ws *websocket.Conn) *Connection {
+	if syncer == nil {
+		log.Fatalln("nil value passed as syncer to proxy.New()")
+	}
+	if ws == nil {
+		log.Fatalln("nil value passed as ws to proxy.New()")
+	}
 
-// create a new MatrixConnection for the received request
-func NewConnection(syncer SyncRequestor, ws *websocket.Conn) *MatrixConnection {
-	result := &MatrixConnection{
+	return &Connection{
 		ws:          ws,
 		messageSend: make(chan []byte, 256),
 		closeSend:   make(chan websocket.CloseError, 5),
-		quit:        make(chan bool),
+		quit:        make(chan struct{}),
 		syncer:      syncer,
 	}
-
-	return result
 }
 
-func (c *MatrixConnection) SendMessage(message []byte) {
+func (c *Connection) SendMessage(message []byte) {
 	c.messageSend <- message
 }
 
-func (c *MatrixConnection) StartPumps() {
+func (c *Connection) Start() {
 	go c.writePump()
 	go c.syncPump()
 	go c.reader()
@@ -93,9 +94,9 @@ func (c *MatrixConnection) StartPumps() {
 
 // syncPump repeatedly calls /sync and writes the results to the messageSend
 // channel.
-func (c *MatrixConnection) syncPump() {
+func (c *Connection) syncPump() {
 	log.Println("Starting sync pump")
-	defer func() { log.Println("Sync pump stopped") }()
+	defer log.Println("Sync pump stopped")
 
 	for {
 		// check that it's not time to exit
@@ -124,8 +125,10 @@ func (c *MatrixConnection) syncPump() {
 				errmsg = errmsg[:100] + "..."
 			}
 
-			msg := websocket.CloseError{Code: websocket.CloseInternalServerErr,
-				Text: errmsg}
+			msg := websocket.CloseError{
+				Code: websocket.CloseInternalServerErr,
+				Text: errmsg,
+			}
 			c.closeSend <- msg
 			return
 		}
@@ -136,7 +139,7 @@ func (c *MatrixConnection) syncPump() {
 
 // writePump pumps messages out to the websocket connection, and takes
 // responsibility for sending pings.
-func (c *MatrixConnection) writePump() {
+func (c *Connection) writePump() {
 	defer func() { log.Println("Writer stopped") }()
 
 	// start a ticker for sending pings
@@ -163,7 +166,7 @@ func (c *MatrixConnection) writePump() {
 			}
 
 		case <-ticker.C:
-			if err := c.write(websocket.PingMessage, []byte{}); err != nil {
+			if err := c.write(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		}
@@ -171,9 +174,9 @@ func (c *MatrixConnection) writePump() {
 }
 
 // helper for writePump: writes a message with the given message type and payload.
-func (c *MatrixConnection) write(mt int, payload []byte) error {
+func (c *Connection) write(messageType int, payload []byte) error {
 	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
-	err := c.ws.WriteMessage(mt, payload)
+	err := c.ws.WriteMessage(messageType, payload)
 	if err != nil {
 		log.Println("Error sending message:", err)
 	}
@@ -181,20 +184,22 @@ func (c *MatrixConnection) write(mt int, payload []byte) error {
 }
 
 // helper for writePump: writes a close message
-func (c *MatrixConnection) writeClose(closeReason websocket.CloseError) error {
+func (c *Connection) writeClose(closeReason websocket.CloseError) error {
 	log.Println("Sending close request:", closeReason)
 	msg := websocket.FormatCloseMessage(closeReason.Code, closeReason.Text)
 	return c.write(websocket.CloseMessage, msg)
 }
 
-func (c *MatrixConnection) reader() {
+func (c *Connection) reader() {
+	defer log.Println("Reader stopped")
+
 	// close the socket when we exit
 	defer c.ws.Close()
 
 	// tell the syncPump to close when we exit
 	defer close(c.quit)
 
-	c.ws.SetReadLimit(maxMessageSize)
+	c.ws.SetReadLimit(maxMessageBytes)
 	c.ws.SetReadDeadline(time.Now().Add(pongWait))
 	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
@@ -207,14 +212,12 @@ func (c *MatrixConnection) reader() {
 			default:
 				log.Println("Error in reader:", err)
 			}
-			break
+			return
 		}
 		go c.handleMessage(message)
-
 	}
-	log.Println("Reader stopped")
 }
 
-func (c *MatrixConnection) handleMessage(message []byte) {
+func (c *Connection) handleMessage(message []byte) {
 	log.Println("Got message:", string(message))
 }
