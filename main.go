@@ -19,10 +19,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"proxy"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/matrix-org/matrix-websockets-proxy/proxy"
 )
 
 const (
@@ -33,12 +35,19 @@ const (
 
 var port = flag.Int("port", 8009, "TCP port to listen on")
 var upstreamURL = flag.String("upstream", "http://localhost:8008/", "URL of upstream server")
+var testHTML *string
+
+func init() {
+	_, srcfile, _, _ := runtime.Caller(0)
+	def := filepath.Join(filepath.Dir(srcfile), "test")
+	testHTML = flag.String("testdir", def, "Path to the HTML test resources")
+}
 
 func main() {
 	flag.Parse()
 
 	fmt.Println("Starting websock server on port", *port)
-	http.Handle("/test/", http.StripPrefix("/test/", http.FileServer(http.Dir("test"))))
+	http.Handle("/test/", http.StripPrefix("/test/", http.FileServer(http.Dir(*testHTML))))
 	http.HandleFunc("/stream", serveStream)
 	err := http.ListenAndServe(fmt.Sprintf(":%d", *port), nil)
 	log.Fatal("ListenAndServe: ", err)
