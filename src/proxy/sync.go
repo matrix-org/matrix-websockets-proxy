@@ -12,10 +12,10 @@ import (
 type Syncer struct {
 	UpstreamURL string
 
-	SyncParams  url.Values
+	SyncParams url.Values
 
 	// our client for the upstream connection
-	client      http.Client
+	client http.Client
 }
 
 // an error returned when the /sync endpoint returns a non-200.

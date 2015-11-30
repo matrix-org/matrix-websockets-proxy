@@ -34,7 +34,6 @@ const (
 var port = flag.Int("port", 8009, "TCP port to listen on")
 var upstreamURL = flag.String("upstream", "http://localhost:8008/", "URL of upstream server")
 
-
 func main() {
 	flag.Parse()
 
@@ -57,9 +56,9 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.URL.Query().Set("timeout", "0")
-	syncer := &proxy.Syncer {
-		UpstreamURL: *upstreamURL+"_matrix/client/v2_alpha/sync",
-		SyncParams: r.URL.Query(),
+	syncer := &proxy.Syncer{
+		UpstreamURL: *upstreamURL + "_matrix/client/v2_alpha/sync",
+		SyncParams:  r.URL.Query(),
 	}
 
 	msg, err := syncer.MakeRequest()
