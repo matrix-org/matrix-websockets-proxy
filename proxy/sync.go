@@ -74,19 +74,17 @@ func (s *Syncer) MakeRequest() ([]byte, error) {
 // extractNextBatch fishes the 'next_batch' member out of the JSON response from
 // /sync.
 func extractNextBatch(httpBody []byte) (string, error) {
-	var parsed map[string]json.RawMessage
-	if err := json.Unmarshal(httpBody, &parsed); err != nil {
-		log.Println("Error parsing JSON:", err)
+	type syncResponse struct {
+		NextBatch string `json:"next_batch"`
+	}
+	var sr syncResponse
+	if err := json.Unmarshal(httpBody, &sr); err != nil {
 		return "", err
 	}
 
-	rm, ok := parsed["next_batch"]
-	if !ok {
-		log.Println("No next_batch in JSON")
+	if sr.NextBatch == "" {
 		return "", fmt.Errorf("/sync response missing next_batch")
 	}
 
-	var next_batch string
-	json.Unmarshal(rm, &next_batch)
-	return next_batch, nil
+	return sr.NextBatch, nil
 }
