@@ -61,22 +61,32 @@ func (s *Syncer) MakeRequest() ([]byte, error) {
 	}
 
 	// we need the 'next_batch' token, so fish that out
-	var parsed map[string]json.RawMessage
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		log.Println("Error parsing JSON:", err)
+	next_batch, err := extractNextBatch(body)
+	if err != nil {
 		return nil, err
+	}
+	log.Println("Got next_batch:", next_batch)
+
+	s.SyncParams.Set("since", next_batch)
+	return body, nil
+}
+
+// extractNextBatch fishes the 'next_batch' member out of the JSON response from
+// /sync.
+func extractNextBatch(httpBody []byte) (string, error) {
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(httpBody, &parsed); err != nil {
+		log.Println("Error parsing JSON:", err)
+		return "", err
 	}
 
 	rm, ok := parsed["next_batch"]
 	if !ok {
 		log.Println("No next_batch in JSON")
-		return nil, fmt.Errorf("/sync response missing next_batch")
+		return "", fmt.Errorf("/sync response missing next_batch")
 	}
 
 	var next_batch string
 	json.Unmarshal(rm, &next_batch)
-	log.Println("Got next_batch:", next_batch)
-
-	s.SyncParams.Set("since", next_batch)
-	return body, nil
+	return next_batch, nil
 }
