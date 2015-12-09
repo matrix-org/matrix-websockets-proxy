@@ -4,7 +4,7 @@ set -ex
 
 export GOPATH=`pwd`/gopath
 cd $GOPATH/src/github.com/matrix-org/matrix-websockets-proxy
-go get -t -v
+go get -t -v ./proxy
 go build
 go test -v ./proxy
 
