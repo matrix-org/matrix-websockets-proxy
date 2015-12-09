@@ -21,6 +21,11 @@ const (
 	maxMessageBytes = 512
 )
 
+type message struct {
+	messageType int
+	body        []byte
+}
+
 // A Connection represents a single websocket.
 //
 // Each connection has three main goroutines:
@@ -45,17 +50,7 @@ const (
 type Connection struct {
 	ws *websocket.Conn
 
-	// Buffered channel of outbound messages.
-	messageSend chan []byte
-
-	// Channel of outbound close requests. The writer will send a close
-	// message to notify the client of the error, then exit.
-	//
-	// The channel is buffered so that if two things decide to close at the
-	// same time, we don't end up with one of them blocking (the writer will
-	// read at most one of the requests). XXX: is there a nicer way to do
-	// this?
-	closeSend chan websocket.CloseError
+	send chan message
 
 	// This gets closed when the reader stops, to ensure the sync pump and the
 	// writer also stop.
@@ -74,16 +69,27 @@ func New(syncer *Syncer, ws *websocket.Conn) *Connection {
 	}
 
 	return &Connection{
-		ws:          ws,
-		messageSend: make(chan []byte, 256),
-		closeSend:   make(chan websocket.CloseError, 5),
-		quit:        make(chan struct{}),
-		syncer:      syncer,
+		ws:     ws,
+		send:   make(chan message, 256),
+		quit:   make(chan struct{}),
+		syncer: syncer,
 	}
 }
 
-func (c *Connection) SendMessage(message []byte) {
-	c.messageSend <- message
+func (c *Connection) SendMessage(body []byte) {
+	c.send <- message{
+		websocket.TextMessage,
+		body,
+	}
+}
+
+func (c *Connection) SendClose(closeCode int, text string) {
+	// XXX: we're allowed to send control frames from any thread, so it
+	// might be easier to write the message directly to the web socket.
+	c.send <- message{
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(closeCode, text),
+	}
 }
 
 func (c *Connection) Start() {
@@ -125,11 +131,7 @@ func (c *Connection) syncPump() {
 				errmsg = errmsg[:100] + "..."
 			}
 
-			msg := websocket.CloseError{
-				Code: websocket.CloseInternalServerErr,
-				Text: errmsg,
-			}
-			c.closeSend <- msg
+			c.SendClose(websocket.CloseInternalServerErr, errmsg)
 			return
 		}
 
@@ -151,17 +153,13 @@ func (c *Connection) writePump() {
 		case <-c.quit:
 			return
 
-		case closeMessage := <-c.closeSend:
-			c.writeClose(closeMessage)
-			// there is nothing more that is useful for us to do. The
-			// client should send a close response, which will shut down
-			// the reader (and thence the sync pump). If the client fails
-			// to respond, the reader will time out and shut everything
-			// down anyway.
-			return
-
-		case message := <-c.messageSend:
-			if err := c.write(websocket.TextMessage, message); err != nil {
+		case message := <-c.send:
+			if err := c.write(message.messageType, message.body); err != nil {
+				return
+			}
+			if message.messageType == websocket.CloseMessage {
+				// any further attempts to write messages will fail with an
+				// error, so we may as well give up now
 				return
 			}
 
@@ -181,13 +179,6 @@ func (c *Connection) write(messageType int, payload []byte) error {
 		log.Println("Error sending message:", err)
 	}
 	return err
-}
-
-// helper for writePump: writes a close message
-func (c *Connection) writeClose(closeReason websocket.CloseError) error {
-	log.Println("Sending close request:", closeReason)
-	msg := websocket.FormatCloseMessage(closeReason.Code, closeReason.Text)
-	return c.write(websocket.CloseMessage, msg)
 }
 
 func (c *Connection) reader() {
