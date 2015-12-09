@@ -2,15 +2,16 @@ package proxy
 
 import (
 	"bufio"
-	"github.com/golang/mock/gomock"
-	"github.com/gorilla/websocket"
-	"github.com/matrix-org/matrix-websockets-proxy/mocks/io"
 	"io"
 	"net"
 	"net/http"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/golang/mock/gomock"
+	"github.com/gorilla/websocket"
+	"github.com/matrix-org/matrix-websockets-proxy/mocks/io"
 )
 
 // testSendMessage tests that Conn.SendMessage causes a text message to be

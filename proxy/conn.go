@@ -1,10 +1,11 @@
 package proxy
 
 import (
-	"github.com/gorilla/websocket"
 	"log"
 	"net/url"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
