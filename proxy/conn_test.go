@@ -1,16 +1,16 @@
 package proxy
 
 import (
+	"bufio"
 	"github.com/golang/mock/gomock"
 	"github.com/gorilla/websocket"
-	"net/http"
-	"testing"
-	"net"
-	"bufio"
-	"time"
-	"io"
 	"github.com/matrix-org/matrix-websockets-proxy/mocks/io"
+	"io"
+	"net"
+	"net/http"
 	"sync"
+	"testing"
+	"time"
 )
 
 // testSendMessage tests that Conn.SendMessage causes a text message to be
@@ -46,7 +46,7 @@ func TestSendMessage(t *testing.T) {
 	conn.Start()
 
 	// wait for it to happen
-	waitTimeout(wg, 1 * time.Second)
+	waitTimeout(wg, 1*time.Second)
 }
 
 // waitTimeout waits for the waitgroup, but times out after the given period
@@ -85,10 +85,10 @@ func makeWsConn(reader io.ReadCloser, ctrl *gomock.Controller) (*mock_io.MockWri
 	respHeader := http.Header{}
 
 	exp := []byte("HTTP/1.1 101 Switching Protocols\r\n" +
-				  "Upgrade: websocket\r\n" +
-				  "Connection: Upgrade\r\n" +
-				  "Sec-WebSocket-Accept: V5hz1RKy1V4JclILDswC1e3Fek0=\r\n" +
-				  "\r\n")
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Accept: V5hz1RKy1V4JclILDswC1e3Fek0=\r\n" +
+		"\r\n")
 	writer.EXPECT().Write(gomock.Eq(exp))
 
 	upgrader := websocket.Upgrader{}
@@ -97,13 +97,12 @@ func makeWsConn(reader io.ReadCloser, ctrl *gomock.Controller) (*mock_io.MockWri
 	return writer, conn, err
 }
 
-
 // testResponseWriter is a stubbed-out http.ResponseWriter to pass into
 // websocket.Upgrader.Upgrader.
 type testResponseWriter struct {
-	header http.Header
+	header       http.Header
 	ResponseCode int
-	netConn *testNetConn
+	netConn      *testNetConn
 }
 
 func newTestRestResponseWriter(recv io.ReadCloser, send io.WriteCloser) *testResponseWriter {
@@ -125,11 +124,9 @@ func (rw *testResponseWriter) WriteHeader(rc int) {
 
 func (rw *testResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	rdwr := bufio.NewReadWriter(bufio.NewReader(rw.netConn.Recv),
-								bufio.NewWriter(rw.netConn.Send))
+		bufio.NewWriter(rw.netConn.Send))
 	return rw.netConn, rdwr, nil
 }
-
-
 
 // testNetConn is a stubbed-out net.Conn, mostly to be returned by
 // testResponseWriter.Hijack()
@@ -175,7 +172,6 @@ func (nc testNetConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-
 // testSyncer is a simple implementation of syncRequester. It just returns
 // results from its Result channel.
 type testSyncer struct {
@@ -184,10 +180,10 @@ type testSyncer struct {
 
 type syncResult struct {
 	Result []byte
-	Err error
+	Err    error
 }
 
 func (s *testSyncer) MakeRequest() ([]byte, error) {
-	r := <- s.Result
+	r := <-s.Result
 	return r.Result, r.Err
 }
