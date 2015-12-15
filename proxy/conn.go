@@ -57,13 +57,13 @@ type Connection struct {
 	// writer also stop.
 	quit chan struct{}
 
-	syncer *Syncer
+	client *MatrixClient
 }
 
 // New creates a new Connection for an incoming websocket upgrade request
-func New(syncer *Syncer, ws *websocket.Conn) *Connection {
-	if syncer == nil {
-		log.Fatalln("nil value passed as syncer to proxy.New()")
+func New(client *MatrixClient, ws *websocket.Conn) *Connection {
+	if client == nil {
+		log.Fatalln("nil value passed as client to proxy.New()")
 	}
 	if ws == nil {
 		log.Fatalln("nil value passed as ws to proxy.New()")
@@ -73,7 +73,7 @@ func New(syncer *Syncer, ws *websocket.Conn) *Connection {
 		ws:     ws,
 		send:   make(chan message, 256),
 		quit:   make(chan struct{}),
-		syncer: syncer,
+		client: client,
 	}
 }
 
@@ -113,7 +113,7 @@ func (c *Connection) syncPump() {
 		default:
 		}
 
-		body, err := c.syncer.MakeRequest()
+		body, err := c.client.Sync(true)
 
 		if err != nil {
 			log.Println("Error performing sync", err)

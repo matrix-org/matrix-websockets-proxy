@@ -21,16 +21,9 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/matrix-org/matrix-websockets-proxy/proxy"
-)
-
-const (
-	// timeout for upstream /sync requests (after which it will send back
-	// an empty response)
-	syncTimeout = 60 * time.Second
 )
 
 var port = flag.Int("port", 8009, "TCP port to listen on")
@@ -64,17 +57,17 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.URL.Query().Set("timeout", "0")
-	syncer := &proxy.Syncer{
-		UpstreamURL: *upstreamURL + "_matrix/client/v2_alpha/sync",
-		SyncParams:  r.URL.Query(),
+	client := &proxy.MatrixClient{
+		UpstreamURL:   *upstreamURL,
+		AccessToken:   r.URL.Query().Get("access_token"),
+		NextSyncBatch: r.URL.Query().Get("since"),
 	}
 
-	msg, err := syncer.MakeRequest()
+	msg, err := client.Sync(false)
 	if err != nil {
 		switch err.(type) {
-		case *proxy.SyncError:
-			errp := err.(*proxy.SyncError)
+		case *proxy.MatrixError:
+			errp := err.(*proxy.MatrixError)
 			log.Println("sync failed:", string(errp.Body))
 			w.Header().Set("Content-Type", errp.ContentType)
 			w.WriteHeader(errp.StatusCode)
@@ -85,7 +78,6 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	syncer.SyncParams.Set("timeout", fmt.Sprintf("%d", syncTimeout/time.Millisecond))
 
 	upgrader := websocket.Upgrader{
 		Subprotocols: []string{"m.json"},
@@ -96,7 +88,7 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := proxy.New(syncer, ws)
+	c := proxy.New(client, ws)
 	c.SendMessage(msg)
 	c.Start()
 }
