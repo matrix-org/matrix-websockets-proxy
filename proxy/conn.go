@@ -1,10 +1,11 @@
 package proxy
 
 import (
-	"github.com/gorilla/websocket"
 	"log"
 	"net/url"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -209,6 +210,12 @@ func (c *Connection) reader() {
 	}
 }
 
+// handleMessage processes a message received from the websocket: it determines
+// the correct response, and sends it.
 func (c *Connection) handleMessage(message []byte) {
 	log.Println("Got message:", string(message))
+
+	if response := handleRequest(message); response != nil {
+		c.SendMessage(response)
+	}
 }

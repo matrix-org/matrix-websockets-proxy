@@ -82,3 +82,12 @@ function message(message, cls) {
     log_elem.scrollTop(log_elem[0].scrollHeight);
 }
 
+function send() {
+    if (!socket) {
+        return
+    }
+
+    input = $("#text")[0].value;
+    console.log("Sending request: "+input);
+    socket.send(input);
+}
