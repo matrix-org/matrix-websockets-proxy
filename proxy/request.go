@@ -13,11 +13,13 @@ type jsonRequest struct {
 	Params *json.RawMessage
 }
 
+type resultObj interface{}
+
 type jsonResponse struct {
 	// this is a pointer so that it can be set to 'nil' to give a null result
 	ID *string `json:"id"`
 
-	Result interface{} `json:"result,omitempty"`
+	Result resultObj `json:"result,omitempty"`
 
 	// this is a pointer so that we can set it to be nil to omit it from the output.
 	Error *MatrixErrorDetails `json:"error,omitempty"`
@@ -32,14 +34,18 @@ func handleRequest(request []byte, client *MatrixClient) []byte {
 	if err := json.Unmarshal(request, &jr); err != nil {
 		log.Println("Invalid request:", err)
 		resp = &jsonResponse{
-			ID: jr.ID,
 			Error: &MatrixErrorDetails{
 				ErrCode: "M_NOT_JSON",
 				Error:   err.Error(),
 			},
 		}
 	} else {
-		resp = handleRequestObject(&jr, client)
+		result, errdetails := handleRequestObject(&jr, client)
+		resp = &jsonResponse{
+			ID:     jr.ID,
+			Result: result,
+			Error:  errdetails,
+		}
 	}
 
 	v, err := json.Marshal(resp)
@@ -50,7 +56,7 @@ func handleRequest(request []byte, client *MatrixClient) []byte {
 	return v
 }
 
-func handleRequestObject(req *jsonRequest, client *MatrixClient) *jsonResponse {
+func handleRequestObject(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails) {
 	// treat absent params the same as empty ones
 	if req.Params == nil {
 		req.Params = new(json.RawMessage)
@@ -66,23 +72,17 @@ func handleRequestObject(req *jsonRequest, client *MatrixClient) *jsonResponse {
 
 	// unknown method
 	log.Println("Unknown method:", req.Method)
-	return &jsonResponse{
-		ID: req.ID,
-		Error: &MatrixErrorDetails{
-			ErrCode: "M_BAD_JSON",
-			Error:   "Unknown method",
-		},
+	return nil, &MatrixErrorDetails{
+		ErrCode: "M_BAD_JSON",
+		Error:   "Unknown method",
 	}
 }
 
-func handlePing(req *jsonRequest) *jsonResponse {
-	return &jsonResponse{
-		ID:     req.ID,
-		Result: &struct{}{},
-	}
+func handlePing(req *jsonRequest) (resultObj, *MatrixErrorDetails) {
+	return &struct{}{}, nil
 }
 
-func handleSend(req *jsonRequest, client *MatrixClient) *jsonResponse {
+func handleSend(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails) {
 	type SendRequest struct {
 		Room_ID    string
 		Event_Type string
@@ -93,54 +93,36 @@ func handleSend(req *jsonRequest, client *MatrixClient) *jsonResponse {
 	}
 
 	if req.ID == nil {
-		return &jsonResponse{
-			ID: req.ID,
-			Error: &MatrixErrorDetails{
-				ErrCode: "M_BAD_JSON",
-				Error:   "Missing request ID",
-			},
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Missing request ID",
 		}
 	}
 
 	var sendParams SendRequest
 	if err := json.Unmarshal(*req.Params, &sendParams); err != nil {
 		log.Println("Invalid request:", err)
-		return &jsonResponse{
-			ID: req.ID,
-			Error: &MatrixErrorDetails{
-				ErrCode: "M_BAD_JSON",
-				Error:   err.Error(),
-			},
-		}
+		return nil, errorToResponse(err)
 	}
 
 	if sendParams.Room_ID == "" {
-		return &jsonResponse{
-			ID: req.ID,
-			Error: &MatrixErrorDetails{
-				ErrCode: "M_BAD_JSON",
-				Error:   "Missing room_id",
-			},
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Missing room_id",
 		}
 	}
 
 	if sendParams.Event_Type == "" {
-		return &jsonResponse{
-			ID: req.ID,
-			Error: &MatrixErrorDetails{
-				ErrCode: "M_BAD_JSON",
-				Error:   "Missing event_type",
-			},
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Missing event_type",
 		}
 	}
 
 	if sendParams.Content == nil {
-		return &jsonResponse{
-			ID: req.ID,
-			Error: &MatrixErrorDetails{
-				ErrCode: "M_BAD_JSON",
-				Error:   "Missing content",
-			},
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Missing content",
 		}
 	}
 
@@ -148,25 +130,21 @@ func handleSend(req *jsonRequest, client *MatrixClient) *jsonResponse {
 		*sendParams.Content)
 
 	if err != nil {
-		switch err.(type) {
-		case *MatrixError:
-			return &jsonResponse{
-				ID:    req.ID,
-				Error: &err.(*MatrixError).Details,
-			}
-		default:
-			return &jsonResponse{
-				ID: req.ID,
-				Error: &MatrixErrorDetails{
-					ErrCode: "M_UNKNOWN",
-					Error:   err.Error(),
-				},
-			}
-		}
+		return nil, errorToResponse(err)
 	}
 
-	return &jsonResponse{
-		ID:     req.ID,
-		Result: &SendResponse{EventID: event_id},
+	return &SendResponse{EventID: event_id}, nil
+}
+
+// errorToResponse takes an error object and turns it into our best MatrixErrorDetails
+func errorToResponse(err error) *MatrixErrorDetails {
+	switch err.(type) {
+	case *MatrixError:
+		return &err.(*MatrixError).Details
+	default:
+		return &MatrixErrorDetails{
+			ErrCode: "M_UNKNOWN",
+			Error:   err.Error(),
+		}
 	}
 }
