@@ -1,12 +1,15 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -19,7 +22,7 @@ const (
 type MatrixClient struct {
 	AccessToken string
 
-	UpstreamURL string
+	url string
 
 	NextSyncBatch string
 
@@ -27,15 +30,38 @@ type MatrixClient struct {
 	httpClient http.Client
 }
 
-// an error returned when a matrix endpoint returns a non-200.
-type MatrixError struct {
+func NewClient(url string, accessToken string) *MatrixClient {
+	if !strings.HasSuffix(url, "/") {
+		url += "/"
+	}
+	return &MatrixClient{url: url, AccessToken: accessToken}
+}
+
+// an error returned when a matrix endpoint returns a non-200 whose body is
+// not a matrix error
+type HttpError struct {
 	StatusCode  int
 	ContentType string
 	Body        []byte
 }
 
-func (s *MatrixError) Error() string {
+func (s *HttpError) Error() string {
 	return string(s.Body)
+}
+
+// an error returned when a matrix endpoint returns a standard matrix error
+type MatrixError struct {
+	HttpError
+	Details MatrixErrorDetails
+}
+
+func (e *MatrixError) Error() string {
+	return fmt.Sprintf("%s (%s)", e.Details.ErrCode, e.Details.Error)
+}
+
+type MatrixErrorDetails struct {
+	ErrCode string `json:"errcode"`
+	Error   string `json:"error"`
 }
 
 // Sync sends the sync request, and returns the body of the response,
@@ -64,9 +90,8 @@ func (s *MatrixClient) Sync(waitForEvents bool) ([]byte, error) {
 	if s.NextSyncBatch != "" {
 		params.Set("since", s.NextSyncBatch)
 	}
-	url := s.UpstreamURL + "_matrix/client/v2_alpha/sync?" + params.Encode()
 
-	body, err := s.get(url)
+	body, err := s.get("_matrix/client/r0/sync", params)
 	if err != nil {
 		return nil, err
 	}
@@ -100,28 +125,67 @@ func extractNextBatch(httpBody []byte) (string, error) {
 	return sr.NextBatch, nil
 }
 
-// get makes an HTTP GET request to the given URL.
+// get makes an HTTP GET request to the given endpoint.
 //
-// It checks the response code, and if it isn't a 200, returns a MatrixError.
-func (s *MatrixClient) get(url string) ([]byte, error) {
-	log.Println("GET", url)
-	resp, err := s.httpClient.Get(url)
+// It checks the response code, and if it isn't a 200, returns an HttpError or
+// MatrixError.
+func (s *MatrixClient) get(path string, queryParams url.Values) ([]byte, error) {
+	return s.do("GET", path, queryParams, nil)
+}
 
+var accessTokenRegexp = regexp.MustCompile("(access_token=)[^&]+")
+
+// do makes an HTTP request to the given URL.
+//
+// It checks the response code, and if it isn't a 200, returns a MatrixError or
+// HttpError
+func (s *MatrixClient) do(method string, path string, queryParams url.Values, body []byte) ([]byte, error) {
+	url := s.url + path
+
+	if queryParams != nil {
+		url += "?" + queryParams.Encode()
+	}
+	redactedUrl := accessTokenRegexp.ReplaceAllString(url, "$1<redacted>")
+	log.Println("Send request:", method, redactedUrl)
+
+	bodyReader := bytes.NewBuffer(body)
+	req, err := http.NewRequest(method, url, bodyReader)
+	if err != nil {
+		log.Println("HTTP error", err)
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		log.Println("HTTP error", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	respBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error reading request error response: %v", err)
 	}
 
 	log.Println("Response:", resp.StatusCode)
-	if resp.StatusCode != 200 {
-		return nil, &MatrixError{resp.StatusCode, resp.Header.Get("Content-Type"), body}
+	if resp.StatusCode == 200 {
+		return respBody, nil
 	}
 
-	return body, nil
+	contentType := resp.Header.Get("Content-Type")
+	httpError := HttpError{resp.StatusCode, contentType, respBody}
+
+	if contentType == "application/json" {
+		matrixErr := MatrixError{HttpError: httpError}
+
+		err = json.Unmarshal(respBody, &matrixErr.Details)
+
+		if err == nil {
+			return nil, &matrixErr
+		}
+		log.Println("Unable to unmarshall json error", err)
+	}
+
+	return nil, &httpError
 }

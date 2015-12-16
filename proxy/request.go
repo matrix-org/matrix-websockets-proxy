@@ -8,12 +8,7 @@ import (
 type jsonRequest struct {
 	ID     *string
 	Method string
-	Params map[string]interface{}
-}
-
-type jsonError struct {
-	ErrCode string `json:"errcode"`
-	Error   string `json:"error"`
+	Params *json.RawMessage
 }
 
 type jsonResponse struct {
@@ -23,7 +18,7 @@ type jsonResponse struct {
 	// these are pointers so that we can set them to be empty to omit them
 	// from the output.
 	Result *map[string]interface{} `json:"result,omitempty"`
-	Error  *jsonError              `json:"error,omitempty"`
+	Error  *MatrixErrorDetails     `json:"error,omitempty"`
 }
 
 // handleRequest gets the correct response for a received message, and returns
@@ -36,7 +31,7 @@ func handleRequest(request []byte) []byte {
 		log.Println("Invalid request:", err)
 		resp = &jsonResponse{
 			ID: jr.ID,
-			Error: &jsonError{
+			Error: &MatrixErrorDetails{
 				ErrCode: "M_NOT_JSON",
 				Error:   err.Error(),
 			},
@@ -63,7 +58,7 @@ func handleRequestObject(req *jsonRequest) *jsonResponse {
 	log.Println("Unknown method:", req.Method)
 	return &jsonResponse{
 		ID: req.ID,
-		Error: &jsonError{
+		Error: &MatrixErrorDetails{
 			ErrCode: "M_BAD_JSON",
 			Error:   "Unknown method",
 		},

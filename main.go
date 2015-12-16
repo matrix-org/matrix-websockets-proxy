@@ -57,23 +57,18 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := &proxy.MatrixClient{
-		UpstreamURL:   *upstreamURL,
-		AccessToken:   r.URL.Query().Get("access_token"),
-		NextSyncBatch: r.URL.Query().Get("since"),
-	}
+	client := proxy.NewClient(*upstreamURL, r.URL.Query().Get("access_token"))
+	client.NextSyncBatch = r.URL.Query().Get("since")
 
 	msg, err := client.Sync(false)
 	if err != nil {
+		log.Println("Error in sync", err)
 		switch err.(type) {
 		case *proxy.MatrixError:
-			errp := err.(*proxy.MatrixError)
-			log.Println("sync failed:", string(errp.Body))
-			w.Header().Set("Content-Type", errp.ContentType)
-			w.WriteHeader(errp.StatusCode)
-			w.Write(errp.Body)
+			handleHttpError(w, err.(*proxy.MatrixError).HttpError)
+		case *proxy.HttpError:
+			handleHttpError(w, *(err.(*proxy.HttpError)))
 		default:
-			log.Println("Error in sync", err)
 			httpError(w, http.StatusInternalServerError)
 		}
 		return
@@ -95,4 +90,10 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 
 func httpError(w http.ResponseWriter, status int) {
 	http.Error(w, http.StatusText(status), status)
+}
+
+func handleHttpError(w http.ResponseWriter, errp proxy.HttpError) {
+	w.Header().Set("Content-Type", errp.ContentType)
+	w.WriteHeader(errp.StatusCode)
+	w.Write(errp.Body)
 }
