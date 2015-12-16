@@ -13,8 +13,6 @@ type jsonRequest struct {
 	Params *json.RawMessage
 }
 
-type resultObj interface{}
-
 type jsonResponse struct {
 	// this is a pointer so that it can be set to 'nil' to give a null result
 	ID *string `json:"id"`
@@ -23,6 +21,16 @@ type jsonResponse struct {
 
 	// this is a pointer so that we can set it to be nil to omit it from the output.
 	Error *MatrixErrorDetails `json:"error,omitempty"`
+}
+
+type resultObj interface{}
+
+type requestHandler func(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails)
+
+var handlerMap = map[string]requestHandler{
+	"ping":  handlePing,
+	"send":  handleSend,
+	"state": handleState,
 }
 
 // handleRequest gets the correct response for a received message, and returns
@@ -63,11 +71,10 @@ func handleRequestObject(req *jsonRequest, client *MatrixClient) (resultObj, *Ma
 		req.Params.UnmarshalJSON([]byte("{}"))
 	}
 
-	switch req.Method {
-	case "ping":
-		return handlePing(req)
-	case "send":
-		return handleSend(req, client)
+	handler, ok := handlerMap[req.Method]
+
+	if ok {
+		return handler(req, client)
 	}
 
 	// unknown method
@@ -78,7 +85,7 @@ func handleRequestObject(req *jsonRequest, client *MatrixClient) (resultObj, *Ma
 	}
 }
 
-func handlePing(req *jsonRequest) (resultObj, *MatrixErrorDetails) {
+func handlePing(req *jsonRequest, _ *MatrixClient) (resultObj, *MatrixErrorDetails) {
 	return &struct{}{}, nil
 }
 
@@ -134,6 +141,54 @@ func handleSend(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixError
 	}
 
 	return &SendResponse{EventID: event_id}, nil
+}
+
+func handleState(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails) {
+	type StateRequest struct {
+		Room_ID    string
+		Event_Type string
+		State_Key  string
+		Content    *json.RawMessage
+	}
+	type StateResponse struct {
+		EventID string `json:"event_id"`
+	}
+
+	var stateParams StateRequest
+	if err := json.Unmarshal(*req.Params, &stateParams); err != nil {
+		log.Println("Invalid request:", err)
+		return nil, errorToResponse(err)
+	}
+
+	if stateParams.Room_ID == "" {
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Missing room_id",
+		}
+	}
+
+	if stateParams.Event_Type == "" {
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Missing event_type",
+		}
+	}
+
+	if stateParams.Content == nil {
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Missing content",
+		}
+	}
+
+	event_id, err := client.SendState(stateParams.Room_ID, stateParams.Event_Type,
+		stateParams.State_Key, *stateParams.Content)
+
+	if err != nil {
+		return nil, errorToResponse(err)
+	}
+
+	return &StateResponse{EventID: event_id}, nil
 }
 
 // errorToResponse takes an error object and turns it into our best MatrixErrorDetails

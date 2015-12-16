@@ -127,24 +127,40 @@ func extractNextBatch(httpBody []byte) (string, error) {
 
 func (s *MatrixClient) SendMessage(roomID string, eventType string,
 	txnID string, content []byte) (string, error) {
-	type sendResponse struct {
+	return s.sendMessageOrState(false, roomID, eventType, txnID, content)
+}
+
+func (s *MatrixClient) SendState(roomID string, eventType string,
+	stateKey string, content []byte) (string, error) {
+	return s.sendMessageOrState(true, roomID, eventType, stateKey, content)
+}
+
+func (s *MatrixClient) sendMessageOrState(state bool,
+	roomID string, eventType string, key string, content []byte) (string, error) {
+	type Response struct {
 		Event_ID string
 	}
 
-	sendURL := fmt.Sprintf("_matrix/client/r0/rooms/%s/send/%s/%s",
-		url.QueryEscape(roomID), url.QueryEscape(eventType),
-		url.QueryEscape(txnID))
+	requestType := "send"
+	if state {
+		requestType = "state"
+	}
+	path := fmt.Sprintf("_matrix/client/r0/rooms/%s/%s/%s/%s",
+		url.QueryEscape(roomID),
+		requestType,
+		url.QueryEscape(eventType),
+		url.QueryEscape(key))
 
 	params := url.Values{
 		"access_token": {s.AccessToken},
 	}
-	resp, err := s.do("PUT", sendURL, params, content)
+	resp, err := s.do("PUT", path, params, content)
 
 	if err != nil {
 		return "", err
 	}
 
-	var sr sendResponse
+	var sr Response
 	if err := json.Unmarshal(resp, &sr); err != nil {
 		return "", err
 	}

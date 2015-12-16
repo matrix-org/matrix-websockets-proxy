@@ -149,10 +149,47 @@ func TestMatrixError(t *testing.T) {
 func TestSend(t *testing.T) {
 	respjson := []byte(`{"event_id": "EVENT_ID"}`)
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wantPath := "/_matrix/client/r0/rooms/ROOM_ID/send/EVENT_TYPE/TXN_ID"
-		if r.URL.Path != wantPath {
-			t.Error("Bad URL path want:", wantPath, "got:", r.URL.Path)
+	wantPath := "/_matrix/client/r0/rooms/ROOM_ID/send/EVENT_TYPE/TXN_ID"
+	ts := newTestServer(t, wantPath, respjson)
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "ACCESS TOKEN")
+	eventID, err := client.SendMessage("ROOM_ID", "EVENT_TYPE", "TXN_ID",
+		[]byte("CONTENT"))
+
+	if err != nil {
+		t.Error("Error from SendMessage", err)
+	}
+
+	if eventID != "EVENT_ID" {
+		t.Error("Bad event id", eventID)
+	}
+}
+
+func TestState(t *testing.T) {
+	respjson := []byte(`{"event_id": "EVENT_ID"}`)
+
+	wantpath := "/_matrix/client/r0/rooms/ROOM_ID/state/EVENT_TYPE/STATE_KEY"
+	ts := newTestServer(t, wantpath, respjson)
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "ACCESS TOKEN")
+	eventID, err := client.SendState("ROOM_ID", "EVENT_TYPE", "STATE_KEY",
+		[]byte("CONTENT"))
+
+	if err != nil {
+		t.Error("Error from SendState", err)
+	}
+
+	if eventID != "EVENT_ID" {
+		t.Error("Bad event id", eventID)
+	}
+}
+
+func newTestServer(t *testing.T, expectedPath string, respJSON []byte) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != expectedPath {
+			t.Error("Bad URL path want:", expectedPath, "got:", r.URL.Path)
 		}
 
 		wantParams := "access_token=ACCESS+TOKEN"
@@ -171,19 +208,6 @@ func TestSend(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(respjson)
+		w.Write(respJSON)
 	}))
-	defer ts.Close()
-
-	client := NewClient(ts.URL, "ACCESS TOKEN")
-	eventID, err := client.SendMessage("ROOM_ID", "EVENT_TYPE", "TXN_ID",
-		[]byte("CONTENT"))
-
-	if err != nil {
-		t.Error("Error from SendMessage", err)
-	}
-
-	if eventID != "EVENT_ID" {
-		t.Error("Bad event id", eventID)
-	}
 }
