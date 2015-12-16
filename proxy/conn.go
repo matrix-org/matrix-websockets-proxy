@@ -215,7 +215,7 @@ func (c *Connection) reader() {
 func (c *Connection) handleMessage(message []byte) {
 	log.Println("Got message:", string(message))
 
-	if response := handleRequest(message); response != nil {
+	if response := handleRequest(message, c.client); response != nil {
 		c.SendMessage(response)
 	}
 }

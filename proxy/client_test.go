@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -142,5 +143,47 @@ func TestMatrixError(t *testing.T) {
 		}
 	default:
 		t.Error("Bad error type", reflect.TypeOf(err))
+	}
+}
+
+func TestSend(t *testing.T) {
+	respjson := []byte(`{"event_id": "EVENT_ID"}`)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wantPath := "/_matrix/client/r0/rooms/ROOM_ID/send/EVENT_TYPE/TXN_ID"
+		if r.URL.Path != wantPath {
+			t.Error("Bad URL path want:", wantPath, "got:", r.URL.Path)
+		}
+
+		wantParams := "access_token=ACCESS+TOKEN"
+		if r.URL.RawQuery != wantParams {
+			t.Error("Bad query string want:", wantParams, "got:", r.URL.RawQuery)
+		}
+
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Error("Bad content-type", r.Header.Get("Content-Type"))
+		}
+
+		if body, err := ioutil.ReadAll(r.Body); err != nil {
+			t.Error("Error reading request body", err)
+		} else if string(body) != "CONTENT" {
+			t.Error("Bad body", string(body))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(respjson)
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL, "ACCESS TOKEN")
+	eventID, err := client.SendMessage("ROOM_ID", "EVENT_TYPE", "TXN_ID",
+		[]byte("CONTENT"))
+
+	if err != nil {
+		t.Error("Error from SendMessage", err)
+	}
+
+	if eventID != "EVENT_ID" {
+		t.Error("Bad event id", eventID)
 	}
 }

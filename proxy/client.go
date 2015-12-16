@@ -125,6 +125,32 @@ func extractNextBatch(httpBody []byte) (string, error) {
 	return sr.NextBatch, nil
 }
 
+func (s *MatrixClient) SendMessage(roomID string, eventType string,
+	txnID string, content []byte) (string, error) {
+	type sendResponse struct {
+		Event_ID string
+	}
+
+	sendURL := fmt.Sprintf("_matrix/client/r0/rooms/%s/send/%s/%s",
+		url.QueryEscape(roomID), url.QueryEscape(eventType),
+		url.QueryEscape(txnID))
+
+	params := url.Values{
+		"access_token": {s.AccessToken},
+	}
+	resp, err := s.do("PUT", sendURL, params, content)
+
+	if err != nil {
+		return "", err
+	}
+
+	var sr sendResponse
+	if err := json.Unmarshal(resp, &sr); err != nil {
+		return "", err
+	}
+	return sr.Event_ID, nil
+}
+
 // get makes an HTTP GET request to the given endpoint.
 //
 // It checks the response code, and if it isn't a 200, returns an HttpError or
