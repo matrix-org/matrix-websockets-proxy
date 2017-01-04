@@ -57,11 +57,15 @@ type Connection struct {
 	// writer also stop.
 	quit chan struct{}
 
-	syncer *Syncer
+	syncer syncRequester
+}
+
+type syncRequester interface {
+	MakeRequest() ([]byte, error)
 }
 
 // New creates a new Connection for an incoming websocket upgrade request
-func New(syncer *Syncer, ws *websocket.Conn) *Connection {
+func New(syncer syncRequester, ws *websocket.Conn) *Connection {
 	if syncer == nil {
 		log.Fatalln("nil value passed as syncer to proxy.New()")
 	}
