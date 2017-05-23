@@ -23,7 +23,7 @@ import (
 	"runtime"
 
 	"github.com/gorilla/websocket"
-	"github.com/matrix-org/matrix-websockets-proxy/proxy"
+	"github.com/krombel/matrix-websockets-proxy/proxy"
 )
 
 var port = flag.Int("port", 8009, "TCP port to listen on")
