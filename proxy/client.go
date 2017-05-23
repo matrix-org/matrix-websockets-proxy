@@ -22,8 +22,10 @@ const (
 type MatrixClient struct {
 	AccessToken string
 
+	// base-url for requests (e.g. "http//localhost:8008")
 	url string
 
+	Filter        string
 	NextSyncBatch string
 
 	// our client for the upstream connection
@@ -89,6 +91,9 @@ func (s *MatrixClient) Sync(waitForEvents bool) ([]byte, error) {
 	}
 	if s.NextSyncBatch != "" {
 		params.Set("since", s.NextSyncBatch)
+	}
+	if s.Filter != "" {
+		params.Set("filter", s.Filter)
 	}
 
 	body, err := s.get("_matrix/client/v2_alpha/sync", params)

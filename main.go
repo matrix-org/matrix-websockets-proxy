@@ -59,6 +59,7 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 
 	client := proxy.NewClient(*upstreamURL, r.URL.Query().Get("access_token"))
 	client.NextSyncBatch = r.URL.Query().Get("since")
+	client.Filter = r.URL.Query().Get("filter")
 
 	msg, err := client.Sync(false)
 	if err != nil {
