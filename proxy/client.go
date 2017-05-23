@@ -91,7 +91,7 @@ func (s *MatrixClient) Sync(waitForEvents bool) ([]byte, error) {
 		params.Set("since", s.NextSyncBatch)
 	}
 
-	body, err := s.get("_matrix/client/r0/sync", params)
+	body, err := s.get("_matrix/client/v2_alpha/sync", params)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (s *MatrixClient) sendMessageOrState(state bool,
 	if state {
 		requestType = "state"
 	}
-	path := fmt.Sprintf("_matrix/client/r0/rooms/%s/%s/%s/%s",
+	path := fmt.Sprintf("_matrix/client/v2_alpha/rooms/%s/%s/%s/%s",
 		url.QueryEscape(roomID),
 		requestType,
 		url.QueryEscape(eventType),
