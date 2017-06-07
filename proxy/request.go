@@ -28,10 +28,11 @@ type resultObj interface{}
 type requestHandler func(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails)
 
 var handlerMap = map[string]requestHandler{
-	"ping":   handlePing,
-	"send":   handleSend,
-	"state":  handleState,
-	"typing": handleTyping,
+	"ping":         handlePing,
+	"read_markers": handleReadMarkers,
+	"send":         handleSend,
+	"state":        handleState,
+	"typing":       handleTyping,
 }
 
 // handleRequest gets the correct response for a received message, and returns
@@ -87,6 +88,57 @@ func handleRequestObject(req *jsonRequest, client *MatrixClient) (resultObj, *Ma
 }
 
 func handlePing(req *jsonRequest, _ *MatrixClient) (resultObj, *MatrixErrorDetails) {
+	return &struct{}{}, nil
+}
+
+func handleReadMarkers(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails) {
+	type ReadMarkerRequest struct {
+		Room_ID    string `json:"room_id"`
+		FullyRead  string `json:"m.fully_read,omitempty"`
+		Read       string `json:"m.read,omitempty"`
+	}
+	type ReadMarkerUpstreamRequest struct {
+		FullyRead  string `json:"m.fully_read,omitempty"`
+		Read       string `json:"m.read,omitempty"`
+	}
+
+	var readMarkerParams ReadMarkerRequest
+	if err := json.Unmarshal(*req.Params, &readMarkerParams); err != nil {
+		log.Println("Invalid request:", err)
+		return nil, errorToResponse(err)
+	}
+
+	if readMarkerParams.Room_ID == "" {
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Missing room_id",
+		}
+	}
+
+	if readMarkerParams.FullyRead == "" && readMarkerParams.Read == "" {
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "either m.read or m.fully_read are required",
+		}
+	}
+
+	jsonContent, err := json.Marshal(ReadMarkerUpstreamRequest{
+		FullyRead: readMarkerParams.FullyRead,
+		Read: readMarkerParams.Read,
+	})
+
+	if err != nil {
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Intermediate content not parseable",
+		}
+	}
+	_, err = client.SendReadMarkers(readMarkerParams.Room_ID, jsonContent)
+
+	if err != nil {
+		return nil, errorToResponse(err)
+	}
+
 	return &struct{}{}, nil
 }
 

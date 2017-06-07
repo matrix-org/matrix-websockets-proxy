@@ -180,6 +180,23 @@ func (s *MatrixClient) SendMessage(roomID string, eventType string,
 	return s.sendMessageOrState(false, roomID, eventType, txnID, content)
 }
 
+func (s *MatrixClient) SendReadMarkers(roomID string, content []byte) ([]byte, error) {
+	path := fmt.Sprintf("_matrix/client/r0/rooms/%s/read_markers",
+		url.QueryEscape(roomID))
+
+	params := url.Values{
+		"access_token": {s.AccessToken},
+	}
+
+	resp, err := s.do("POST", path, params, content)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
 func (s *MatrixClient) SendState(roomID string, eventType string,
 	stateKey string, content []byte) (string, error) {
 	return s.sendMessageOrState(true, roomID, eventType, stateKey, content)
