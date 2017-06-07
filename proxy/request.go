@@ -28,9 +28,10 @@ type resultObj interface{}
 type requestHandler func(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails)
 
 var handlerMap = map[string]requestHandler{
-	"ping":  handlePing,
-	"send":  handleSend,
-	"state": handleState,
+	"ping":   handlePing,
+	"send":   handleSend,
+	"state":  handleState,
+	"typing": handleTyping,
 }
 
 // handleRequest gets the correct response for a received message, and returns
@@ -189,6 +190,51 @@ func handleState(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErro
 	}
 
 	return &StateResponse{EventID: event_id}, nil
+}
+
+func handleTyping(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails) {
+	type TypingRequest struct {
+		Room_ID    string `json:"room_id"`
+		Typing     bool   `json:"typing"`
+		Timeout    int    `json:"timeout,omitempty"`
+	}
+
+	var typingParams TypingRequest
+	if err := json.Unmarshal(*req.Params, &typingParams); err != nil {
+		log.Println("Invalid request:", err)
+		return nil, errorToResponse(err)
+	}
+
+	if typingParams.Room_ID == "" {
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Missing room_id",
+		}
+	}
+
+	content := TypingRequest{
+		Room_ID: typingParams.Room_ID,
+		Typing: typingParams.Typing,
+	}
+	if (typingParams.Typing && typingParams.Timeout != 0) {
+		content.Timeout = typingParams.Timeout
+	}
+
+	jsonContent, err := json.Marshal(&content)
+	if err != nil {
+		return nil, &MatrixErrorDetails{
+			ErrCode: "M_BAD_JSON",
+			Error:   "Intermediate content not parseable",
+		}
+
+	}
+	_, err = client.SendTyping(typingParams.Room_ID, jsonContent)
+
+	if err != nil {
+		return nil, errorToResponse(err)
+	}
+
+	return &struct{}{}, nil
 }
 
 // errorToResponse takes an error object and turns it into our best MatrixErrorDetails

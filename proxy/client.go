@@ -185,6 +185,35 @@ func (s *MatrixClient) SendState(roomID string, eventType string,
 	return s.sendMessageOrState(true, roomID, eventType, stateKey, content)
 }
 
+func (s *MatrixClient) SendTyping(roomID string, content []byte) ([]byte, error) {
+	userID, err := s.GetUserId()
+	if err != nil {
+		return nil, err
+	}
+
+	path := fmt.Sprintf("_matrix/client/r0/rooms/%s/typing/%s",
+		url.QueryEscape(roomID),
+		url.QueryEscape(userID))
+
+	params := url.Values{
+		"access_token": {s.AccessToken},
+	}
+
+	resp, err := s.do("PUT", path, params, content)
+
+	if err != nil {
+		if err.(*MatrixError).HttpError.StatusCode == 429 {
+			// Message got blocked because of rate-limiting
+			// => ignore it (TODO is this intended?)
+			log.Println("SendTyping got rate-limited: ignore");
+			return []byte("{}"), nil
+		}
+		return nil, err
+	}
+
+	return resp, nil
+}
+
 func (s *MatrixClient) sendMessageOrState(state bool,
 	roomID string, eventType string, key string, content []byte) (string, error) {
 	type Response struct {
