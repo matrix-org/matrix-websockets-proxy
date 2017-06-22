@@ -19,7 +19,7 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 
 	// Maximum message size allowed from peer.
-	maxMessageBytes = 2048
+	maxMessageBytes = 4096
 )
 
 type message struct {
