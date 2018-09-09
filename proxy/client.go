@@ -19,9 +19,10 @@ const (
 	syncTimeout = 60 * time.Second
 )
 
+// MatrixClient struct that contains all data to fetch syncs from server
 type MatrixClient struct {
 	AccessToken string
-	UserId      string
+	UserID      string
 
 	// base-url for requests (e.g. "http//localhost:8008")
 	url string
@@ -33,6 +34,7 @@ type MatrixClient struct {
 	httpClient http.Client
 }
 
+// NewClient create a new MatrixClient
 func NewClient(url string, accessToken string) *MatrixClient {
 	if !strings.HasSuffix(url, "/") {
 		url += "/"
@@ -40,21 +42,21 @@ func NewClient(url string, accessToken string) *MatrixClient {
 	return &MatrixClient{url: url, AccessToken: accessToken}
 }
 
-// an error returned when a matrix endpoint returns a non-200 whose body is
+// HTTPError error returned when a matrix endpoint returns a non-200 whose body is
 // not a matrix error
-type HttpError struct {
+type HTTPError struct {
 	StatusCode  int
 	ContentType string
 	Body        []byte
 }
 
-func (s *HttpError) Error() string {
+func (s *HTTPError) Error() string {
 	return string(s.Body)
 }
 
-// an error returned when a matrix endpoint returns a standard matrix error
+// MatrixError an error returned when a matrix endpoint returns a standard matrix error
 type MatrixError struct {
-	HttpError
+	HTTPError
 	Details MatrixErrorDetails
 }
 
@@ -62,14 +64,16 @@ func (e *MatrixError) Error() string {
 	return fmt.Sprintf("%s (%s)", e.Details.ErrCode, e.Details.Error)
 }
 
+// MatrixErrorDetails contains ErrCode and Error as defined in matrix spec
 type MatrixErrorDetails struct {
 	ErrCode string `json:"errcode"`
 	Error   string `json:"error"`
 }
 
-func (s *MatrixClient) GetUserId() (string, error) {
-	if s.UserId != "" {
-		return s.UserId, nil
+// GetUserID returns the UserId @as:df.tld of the user who connected
+func (s *MatrixClient) GetUserID() (string, error) {
+	if s.UserID != "" {
+		return s.UserID, nil
 	}
 
 	params := url.Values{
@@ -89,8 +93,8 @@ func (s *MatrixClient) GetUserId() (string, error) {
 		return "", fmt.Errorf("Could not Unmarshal response: %s", err)
 	}
 
-	s.UserId = response.UserID
-	return s.UserId, nil
+	s.UserID = response.UserID
+	return s.UserID, nil
 }
 
 // Sync sends the sync request, and returns the body of the response,
@@ -129,12 +133,12 @@ func (s *MatrixClient) Sync(waitForEvents bool) ([]byte, error) {
 	}
 
 	// we need the 'next_batch' token, so fish that out
-	next_batch, err := extractNextBatch(body)
+	nextBatch, err := extractNextBatch(body)
 	if err != nil {
 		return nil, err
 	}
-	log.Println("Got next_batch:", next_batch)
-	s.NextSyncBatch = next_batch
+	log.Println("Got next_batch:", nextBatch)
+	s.NextSyncBatch = nextBatch
 
 	return body, nil
 }
@@ -157,6 +161,7 @@ func extractNextBatch(httpBody []byte) (string, error) {
 	return sr.NextBatch, nil
 }
 
+// SendMessage sends message to a room
 func (s *MatrixClient) SendMessage(roomID string, eventType string,
 	txnID string, content []byte) (string, error) {
 	return s.sendMessageOrState(false, roomID, eventType, txnID, content)
@@ -179,13 +184,15 @@ func (s *MatrixClient) SendReadMarkers(roomID string, content []byte) ([]byte, e
 	return resp, nil
 }
 
+// SendState sends state for a room to server
 func (s *MatrixClient) SendState(roomID string, eventType string,
 	stateKey string, content []byte) (string, error) {
 	return s.sendMessageOrState(true, roomID, eventType, stateKey, content)
 }
 
+// SendTyping sent that current user is typing
 func (s *MatrixClient) SendTyping(roomID string, content []byte) ([]byte, error) {
-	userID, err := s.GetUserId()
+	userID, err := s.GetUserID()
 	if err != nil {
 		return nil, err
 	}
@@ -201,10 +208,10 @@ func (s *MatrixClient) SendTyping(roomID string, content []byte) ([]byte, error)
 	resp, err := s.do("PUT", path, params, content)
 
 	if err != nil {
-		if err.(*MatrixError).HttpError.StatusCode == 429 {
+		if err.(*MatrixError).HTTPError.StatusCode == 429 {
 			// Message got blocked because of rate-limiting
 			// => ignore it (TODO is this intended?)
-			log.Println("SendTyping got rate-limited: ignore");
+			log.Println("SendTyping got rate-limited: ignore")
 			return []byte("{}"), nil
 		}
 		return nil, err
@@ -216,7 +223,7 @@ func (s *MatrixClient) SendTyping(roomID string, content []byte) ([]byte, error)
 func (s *MatrixClient) sendMessageOrState(state bool,
 	roomID string, eventType string, key string, content []byte) (string, error) {
 	type Response struct {
-		Event_ID string
+		EventID string
 	}
 
 	requestType := "send"
@@ -242,12 +249,12 @@ func (s *MatrixClient) sendMessageOrState(state bool,
 	if err := json.Unmarshal(resp, &sr); err != nil {
 		return "", err
 	}
-	return sr.Event_ID, nil
+	return sr.EventID, nil
 }
 
 // get makes an HTTP GET request to the given endpoint.
 //
-// It checks the response code, and if it isn't a 200, returns an HttpError or
+// It checks the response code, and if it isn't a 200, returns an HTTPError or
 // MatrixError.
 func (s *MatrixClient) get(path string, queryParams url.Values) ([]byte, error) {
 	return s.do("GET", path, queryParams, nil)
@@ -258,15 +265,15 @@ var accessTokenRegexp = regexp.MustCompile("(access_token=)[^&]+")
 // do makes an HTTP request to the given URL.
 //
 // It checks the response code, and if it isn't a 200, returns a MatrixError or
-// HttpError
+// HTTPError
 func (s *MatrixClient) do(method string, path string, queryParams url.Values, body []byte) ([]byte, error) {
 	url := s.url + path
 
 	if queryParams != nil {
 		url += "?" + queryParams.Encode()
 	}
-	redactedUrl := accessTokenRegexp.ReplaceAllString(url, "$1<redacted>")
-	log.Println("Send request:", method, redactedUrl)
+	redactedURL := accessTokenRegexp.ReplaceAllString(url, "$1<redacted>")
+	log.Println("Send request:", method, redactedURL)
 
 	bodyReader := bytes.NewBuffer(body)
 	req, err := http.NewRequest(method, url, bodyReader)
@@ -294,10 +301,10 @@ func (s *MatrixClient) do(method string, path string, queryParams url.Values, bo
 	}
 
 	contentType := resp.Header.Get("Content-Type")
-	httpError := HttpError{resp.StatusCode, contentType, respBody}
+	httpError := HTTPError{resp.StatusCode, contentType, respBody}
 
 	if contentType == "application/json" {
-		matrixErr := MatrixError{HttpError: httpError}
+		matrixErr := MatrixError{HTTPError: httpError}
 
 		err = json.Unmarshal(respBody, &matrixErr.Details)
 

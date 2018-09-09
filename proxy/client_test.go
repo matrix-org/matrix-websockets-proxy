@@ -26,13 +26,13 @@ func TestExtractNextBatch(t *testing.T) {
 		}
 	}`
 
-	next_batch, err := extractNextBatch([]byte(input))
+	nextBatch, err := extractNextBatch([]byte(input))
 	if err != nil {
 		t.Errorf("Expected no error, got '%v'", err)
 	}
-	if next_batch != "s361093_69_4_8353_1" {
+	if nextBatch != "s361093_69_4_8353_1" {
 		t.Errorf("Expected next batch 's361093_69_4_8353_1', got '%v'",
-			next_batch)
+			nextBatch)
 	}
 }
 
@@ -46,14 +46,14 @@ func TestExtractNextBatchErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		next_batch, err := extractNextBatch([]byte(tt.input))
+		nextBatch, err := extractNextBatch([]byte(tt.input))
 		if err == nil || err.Error() != tt.expectedError {
 			t.Errorf("Input %v: expected error '%v', got '%v'", tt.input,
 				tt.expectedError, err)
 		}
-		if next_batch != "" {
+		if nextBatch != "" {
 			t.Errorf("Input %v: expected empty result, got '%v'", tt.input,
-				next_batch)
+				nextBatch)
 		}
 	}
 }
@@ -89,8 +89,8 @@ func TestHttpError(t *testing.T) {
 		t.Error("Expected no response; got", string(resp))
 	}
 	switch err.(type) {
-	case *HttpError:
-		httpError := err.(*HttpError)
+	case *HTTPError:
+		httpError := err.(*HTTPError)
 		if !strings.HasPrefix(httpError.ContentType, "text/plain") {
 			t.Error("Bad content type", httpError.ContentType)
 		}

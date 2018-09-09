@@ -77,6 +77,7 @@ func New(client *MatrixClient, ws *websocket.Conn) *Connection {
 	}
 }
 
+// SendMessage sends body through websocket
 func (c *Connection) SendMessage(body []byte) {
 	c.send <- message{
 		websocket.TextMessage,
@@ -84,6 +85,7 @@ func (c *Connection) SendMessage(body []byte) {
 	}
 }
 
+// SendClose sends close through websocket
 func (c *Connection) SendClose(closeCode int, text string) {
 	// XXX: we're allowed to send control frames from any thread, so it
 	// might be easier to write the message directly to the web socket.
@@ -93,6 +95,7 @@ func (c *Connection) SendClose(closeCode int, text string) {
 	}
 }
 
+// Start inits WebSocket connection
 func (c *Connection) Start() {
 	go c.writePump()
 	go c.syncPump()

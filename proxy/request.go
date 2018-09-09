@@ -1,4 +1,4 @@
-// request.go contains functions for dealing with requests receieved from
+// Package proxy request.go contains functions for dealing with requests receieved from
 // websocket clients.
 package proxy
 
@@ -93,13 +93,13 @@ func handlePing(req *jsonRequest, _ *MatrixClient) (resultObj, *MatrixErrorDetai
 
 func handleReadMarkers(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails) {
 	type ReadMarkerRequest struct {
-		Room_ID    string `json:"room_id"`
-		FullyRead  string `json:"m.fully_read,omitempty"`
-		Read       string `json:"m.read,omitempty"`
+		RoomID    string `json:"room_id"`
+		FullyRead string `json:"m.fully_read,omitempty"`
+		Read      string `json:"m.read,omitempty"`
 	}
 	type ReadMarkerUpstreamRequest struct {
-		FullyRead  string `json:"m.fully_read,omitempty"`
-		Read       string `json:"m.read,omitempty"`
+		FullyRead string `json:"m.fully_read,omitempty"`
+		Read      string `json:"m.read,omitempty"`
 	}
 
 	var readMarkerParams ReadMarkerRequest
@@ -108,7 +108,7 @@ func handleReadMarkers(req *jsonRequest, client *MatrixClient) (resultObj, *Matr
 		return nil, errorToResponse(err)
 	}
 
-	if readMarkerParams.Room_ID == "" {
+	if readMarkerParams.RoomID == "" {
 		return nil, &MatrixErrorDetails{
 			ErrCode: "M_BAD_JSON",
 			Error:   "Missing room_id",
@@ -124,7 +124,7 @@ func handleReadMarkers(req *jsonRequest, client *MatrixClient) (resultObj, *Matr
 
 	jsonContent, err := json.Marshal(ReadMarkerUpstreamRequest{
 		FullyRead: readMarkerParams.FullyRead,
-		Read: readMarkerParams.Read,
+		Read:      readMarkerParams.Read,
 	})
 
 	if err != nil {
@@ -133,7 +133,7 @@ func handleReadMarkers(req *jsonRequest, client *MatrixClient) (resultObj, *Matr
 			Error:   "Intermediate content not parseable",
 		}
 	}
-	_, err = client.SendReadMarkers(readMarkerParams.Room_ID, jsonContent)
+	_, err = client.SendReadMarkers(readMarkerParams.RoomID, jsonContent)
 
 	if err != nil {
 		return nil, errorToResponse(err)
@@ -144,9 +144,9 @@ func handleReadMarkers(req *jsonRequest, client *MatrixClient) (resultObj, *Matr
 
 func handleSend(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails) {
 	type SendRequest struct {
-		Room_ID    string
-		Event_Type string
-		Content    *json.RawMessage
+		RoomID    string `json:"room_id"`
+		EventType string `json:"event_type"`
+		Content   *json.RawMessage
 	}
 	type SendResponse struct {
 		EventID string `json:"event_id"`
@@ -165,14 +165,14 @@ func handleSend(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixError
 		return nil, errorToResponse(err)
 	}
 
-	if sendParams.Room_ID == "" {
+	if sendParams.RoomID == "" {
 		return nil, &MatrixErrorDetails{
 			ErrCode: "M_BAD_JSON",
 			Error:   "Missing room_id",
 		}
 	}
 
-	if sendParams.Event_Type == "" {
+	if sendParams.EventType == "" {
 		return nil, &MatrixErrorDetails{
 			ErrCode: "M_BAD_JSON",
 			Error:   "Missing event_type",
@@ -186,22 +186,22 @@ func handleSend(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixError
 		}
 	}
 
-	event_id, err := client.SendMessage(sendParams.Room_ID, sendParams.Event_Type, *req.ID,
+	eventID, err := client.SendMessage(sendParams.RoomID, sendParams.EventType, *req.ID,
 		*sendParams.Content)
 
 	if err != nil {
 		return nil, errorToResponse(err)
 	}
 
-	return &SendResponse{EventID: event_id}, nil
+	return &SendResponse{EventID: eventID}, nil
 }
 
 func handleState(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails) {
 	type StateRequest struct {
-		Room_ID    string
-		Event_Type string
-		State_Key  string
-		Content    *json.RawMessage
+		RoomID    string `json:"room_id"`
+		EventType string `json:"event_type"`
+		StateKey  string `json:"state_key"`
+		Content   *json.RawMessage
 	}
 	type StateResponse struct {
 		EventID string `json:"event_id"`
@@ -213,14 +213,14 @@ func handleState(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErro
 		return nil, errorToResponse(err)
 	}
 
-	if stateParams.Room_ID == "" {
+	if stateParams.RoomID == "" {
 		return nil, &MatrixErrorDetails{
 			ErrCode: "M_BAD_JSON",
 			Error:   "Missing room_id",
 		}
 	}
 
-	if stateParams.Event_Type == "" {
+	if stateParams.EventType == "" {
 		return nil, &MatrixErrorDetails{
 			ErrCode: "M_BAD_JSON",
 			Error:   "Missing event_type",
@@ -234,21 +234,21 @@ func handleState(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErro
 		}
 	}
 
-	event_id, err := client.SendState(stateParams.Room_ID, stateParams.Event_Type,
-		stateParams.State_Key, *stateParams.Content)
+	eventID, err := client.SendState(stateParams.RoomID, stateParams.EventType,
+		stateParams.StateKey, *stateParams.Content)
 
 	if err != nil {
 		return nil, errorToResponse(err)
 	}
 
-	return &StateResponse{EventID: event_id}, nil
+	return &StateResponse{EventID: eventID}, nil
 }
 
 func handleTyping(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErrorDetails) {
 	type TypingRequest struct {
-		Room_ID    string `json:"room_id"`
-		Typing     bool   `json:"typing"`
-		Timeout    int    `json:"timeout,omitempty"`
+		RoomID  string `json:"room_id"`
+		Typing  bool   `json:"typing"`
+		Timeout int    `json:"timeout,omitempty"`
 	}
 
 	var typingParams TypingRequest
@@ -257,7 +257,7 @@ func handleTyping(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErr
 		return nil, errorToResponse(err)
 	}
 
-	if typingParams.Room_ID == "" {
+	if typingParams.RoomID == "" {
 		return nil, &MatrixErrorDetails{
 			ErrCode: "M_BAD_JSON",
 			Error:   "Missing room_id",
@@ -265,10 +265,10 @@ func handleTyping(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErr
 	}
 
 	content := TypingRequest{
-		Room_ID: typingParams.Room_ID,
+		RoomID: typingParams.RoomID,
 		Typing: typingParams.Typing,
 	}
-	if (typingParams.Typing && typingParams.Timeout != 0) {
+	if typingParams.Typing && typingParams.Timeout != 0 {
 		content.Timeout = typingParams.Timeout
 	}
 
@@ -280,7 +280,7 @@ func handleTyping(req *jsonRequest, client *MatrixClient) (resultObj, *MatrixErr
 		}
 
 	}
-	_, err = client.SendTyping(typingParams.Room_ID, jsonContent)
+	_, err = client.SendTyping(typingParams.RoomID, jsonContent)
 
 	if err != nil {
 		return nil, errorToResponse(err)

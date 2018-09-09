@@ -66,9 +66,9 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		log.Println("Error in sync", err)
 		switch err.(type) {
 		case *proxy.MatrixError:
-			handleHttpError(w, err.(*proxy.MatrixError).HttpError)
-		case *proxy.HttpError:
-			handleHttpError(w, *(err.(*proxy.HttpError)))
+			handleHTTPError(w, err.(*proxy.MatrixError).HTTPError)
+		case *proxy.HTTPError:
+			handleHTTPError(w, *(err.(*proxy.HTTPError)))
 		default:
 			httpError(w, http.StatusInternalServerError)
 		}
@@ -93,7 +93,7 @@ func httpError(w http.ResponseWriter, status int) {
 	http.Error(w, http.StatusText(status), status)
 }
 
-func handleHttpError(w http.ResponseWriter, errp proxy.HttpError) {
+func handleHTTPError(w http.ResponseWriter, errp proxy.HTTPError) {
 	w.Header().Set("Content-Type", errp.ContentType)
 	w.WriteHeader(errp.StatusCode)
 	w.Write(errp.Body)
