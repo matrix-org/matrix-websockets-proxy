@@ -72,43 +72,25 @@ func (s *MatrixClient) GetUserId() (string, error) {
 		return s.UserId, nil
 	}
 
-	// make use of http://matrix.org/docs/spec/client_server/r0.2.0.html#m-rule-invite-for-me
-	// i know it is hacky but this was the only way I found to determine the user-id via
-	// Client-Server-API with just access-token provided
-
 	params := url.Values{
 		"access_token": {s.AccessToken},
 	}
-	resp, err := s.get("_matrix/client/r0/pushrules/global/override/.m.rule.invite_for_me", params)
+	resp, err := s.get("_matrix/client/r0/account/whoami", params)
 	if err != nil {
-		return "", fmt.Errorf("Error while fetching data to determine user-id")
+		return "", fmt.Errorf("Error while fetching whoami")
 	}
 
-	type Condition struct {
-		Key     string
-		Pattern string
-	//	Kind    string
-	}
-	type PushRuleResponse struct {
-	//	Rule_ID    string
-	//	Default    bool
-	//	Enabled    bool
-                Conditions []Condition
+	type WhoAmIResponse struct {
+		UserID string `json:"user_id"`
 	}
 
-	var response PushRuleResponse
+	var response WhoAmIResponse
 	if err := json.Unmarshal(resp, &response); err != nil {
-		return "", fmt.Errorf("Could not Unmarshal response:", err)
+		return "", fmt.Errorf("Could not Unmarshal response: %s", err)
 	}
 
-	for _, condition := range response.Conditions {
-		if condition.Key == "state_key" {
-			log.Println("Resolved UserID:", condition.Pattern)
-			s.UserId = condition.Pattern
-			return condition.Pattern, nil
-		}
-	}
-	return "", fmt.Errorf("Error finding state_key in push-rule-conditions (for UserId)")
+	s.UserId = response.UserID
+	return s.UserId, nil
 }
 
 // Sync sends the sync request, and returns the body of the response,
