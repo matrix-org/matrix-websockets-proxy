@@ -22,3 +22,19 @@ To run it, just do:
 To rebuild, use:
 
     go build github.com/matrix-org/matrix-websockets-proxy
+
+To update to the latest state, run:
+
+    go get -u github.com/matrix-org/matrix-websockets-proxy
+
+### nginx-integration
+To make this work you can integrate this proxy using nginx as follows:
+```
+        location /_matrix/client/unstable/stream {
+                proxy_pass http://127.0.0.1:8009/stream;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header Origin "";
+        }
+```

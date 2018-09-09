@@ -19,7 +19,7 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 
 	// Maximum message size allowed from peer.
-	maxMessageBytes = 512
+	maxMessageBytes = 4096
 )
 
 type message struct {
@@ -57,13 +57,13 @@ type Connection struct {
 	// writer also stop.
 	quit chan struct{}
 
-	syncer *Syncer
+	client *MatrixClient
 }
 
 // New creates a new Connection for an incoming websocket upgrade request
-func New(syncer *Syncer, ws *websocket.Conn) *Connection {
-	if syncer == nil {
-		log.Fatalln("nil value passed as syncer to proxy.New()")
+func New(client *MatrixClient, ws *websocket.Conn) *Connection {
+	if client == nil {
+		log.Fatalln("nil value passed as client to proxy.New()")
 	}
 	if ws == nil {
 		log.Fatalln("nil value passed as ws to proxy.New()")
@@ -73,10 +73,11 @@ func New(syncer *Syncer, ws *websocket.Conn) *Connection {
 		ws:     ws,
 		send:   make(chan message, 256),
 		quit:   make(chan struct{}),
-		syncer: syncer,
+		client: client,
 	}
 }
 
+// SendMessage sends body through websocket
 func (c *Connection) SendMessage(body []byte) {
 	c.send <- message{
 		websocket.TextMessage,
@@ -84,6 +85,7 @@ func (c *Connection) SendMessage(body []byte) {
 	}
 }
 
+// SendClose sends close through websocket
 func (c *Connection) SendClose(closeCode int, text string) {
 	// XXX: we're allowed to send control frames from any thread, so it
 	// might be easier to write the message directly to the web socket.
@@ -93,6 +95,7 @@ func (c *Connection) SendClose(closeCode int, text string) {
 	}
 }
 
+// Start inits WebSocket connection
 func (c *Connection) Start() {
 	go c.writePump()
 	go c.syncPump()
@@ -113,7 +116,7 @@ func (c *Connection) syncPump() {
 		default:
 		}
 
-		body, err := c.syncer.MakeRequest()
+		body, err := c.client.Sync(true)
 
 		if err != nil {
 			log.Println("Error performing sync", err)
@@ -215,7 +218,7 @@ func (c *Connection) reader() {
 func (c *Connection) handleMessage(message []byte) {
 	log.Println("Got message:", string(message))
 
-	if response := handleRequest(message); response != nil {
+	if response := handleRequest(message, c.client); response != nil {
 		c.SendMessage(response)
 	}
 }

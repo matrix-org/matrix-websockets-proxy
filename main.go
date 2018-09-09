@@ -21,16 +21,9 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/matrix-org/matrix-websockets-proxy/proxy"
-)
-
-const (
-	// timeout for upstream /sync requests (after which it will send back
-	// an empty response)
-	syncTimeout = 60 * time.Second
 )
 
 var port = flag.Int("port", 8009, "TCP port to listen on")
@@ -64,28 +57,23 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.URL.Query().Set("timeout", "0")
-	syncer := &proxy.Syncer{
-		UpstreamURL: *upstreamURL + "_matrix/client/v2_alpha/sync",
-		SyncParams:  r.URL.Query(),
-	}
+	client := proxy.NewClient(*upstreamURL, r.URL.Query().Get("access_token"))
+	client.NextSyncBatch = r.URL.Query().Get("since")
+	client.Filter = r.URL.Query().Get("filter")
 
-	msg, err := syncer.MakeRequest()
+	msg, err := client.Sync(false)
 	if err != nil {
+		log.Println("Error in sync", err)
 		switch err.(type) {
-		case *proxy.SyncError:
-			errp := err.(*proxy.SyncError)
-			log.Println("sync failed:", string(errp.Body))
-			w.Header().Set("Content-Type", errp.ContentType)
-			w.WriteHeader(errp.StatusCode)
-			w.Write(errp.Body)
+		case *proxy.MatrixError:
+			handleHTTPError(w, err.(*proxy.MatrixError).HTTPError)
+		case *proxy.HTTPError:
+			handleHTTPError(w, *(err.(*proxy.HTTPError)))
 		default:
-			log.Println("Error in sync", err)
 			httpError(w, http.StatusInternalServerError)
 		}
 		return
 	}
-	syncer.SyncParams.Set("timeout", fmt.Sprintf("%d", syncTimeout/time.Millisecond))
 
 	upgrader := websocket.Upgrader{
 		Subprotocols: []string{"m.json"},
@@ -96,11 +84,17 @@ func serveStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := proxy.New(syncer, ws)
+	c := proxy.New(client, ws)
 	c.SendMessage(msg)
 	c.Start()
 }
 
 func httpError(w http.ResponseWriter, status int) {
 	http.Error(w, http.StatusText(status), status)
+}
+
+func handleHTTPError(w http.ResponseWriter, errp proxy.HTTPError) {
+	w.Header().Set("Content-Type", errp.ContentType)
+	w.WriteHeader(errp.StatusCode)
+	w.Write(errp.Body)
 }
